@@ -66,7 +66,7 @@ npm run build
 
 The server resolves `.env` beside `package.json`, so an MCP host can launch the absolute `dist\index.js` path from any working directory. Relative runtime and OCR language paths are also resolved from the repository root.
 
-The example token is intentionally `change.me` for first testing and binds only to loopback. Non-loopback HTTP refuses to start with that placeholder or a token shorter than 24 characters unless the explicit test-only `COMPUTER_USE_ALLOW_EXAMPLE_TOKEN_ON_LAN=true` override is set.
+The example token is intentionally `change.me` for first testing and binds only to loopback. Non-loopback HTTP refuses to start with that placeholder or a token shorter than 24 characters unless the explicit test-only override is enabled and at least one client IP is allowlisted.
 
 ## Run with stdio
 
@@ -134,7 +134,7 @@ A common `mcpServers` JSON configuration for a Streamable HTTP client is:
 }
 ```
 
-For LAN use, replace `127.0.0.1` with the Windows computer's IP address and replace `change.me` with the same strong token configured on the server. Client configuration field names can vary; clients that label this transport `http` should use that label while keeping the same MCP URL and authorization header. For isolated short-lived testing with an already configured `change.me` client, also set `COMPUTER_USE_ALLOW_EXAMPLE_TOKEN_ON_LAN=true` on the server. That override is intentionally off by default and emits a prominent startup warning.
+For LAN use, replace `127.0.0.1` with the Windows computer's IP address and replace `change.me` with the same strong token configured on the server. Client configuration field names can vary; clients that label this transport `http` should use that label while keeping the same MCP URL and authorization header. For isolated short-lived testing with an already configured `change.me` client, set `COMPUTER_USE_ALLOW_EXAMPLE_TOKEN_ON_LAN=true` and `COMPUTER_USE_ALLOWED_CLIENT_IPS=<client-ip>` on the server. Both controls are required for weak-token LAN startup; other non-loopback source addresses receive `403` before authentication.
 
 The authenticated health endpoint is `GET /health`. The server implements MCP Streamable HTTP session initialization, POST requests, SSE streaming through GET, session deletion, bounded concurrent initialization, and idle-session cleanup. Each network session receives its own MCP transport while all sessions coordinate through one hardware-input queue and one mandatory exclusive lease for desktop mutations.
 
@@ -154,6 +154,7 @@ Command-line `--host` and `--port` override their environment values. Keep crede
 | --- | --- | --- |
 | `COMPUTER_USE_AUTH_TOKEN` | `change.me` | Bearer token required by HTTP |
 | `COMPUTER_USE_ALLOW_EXAMPLE_TOKEN_ON_LAN` | `false` | Explicitly allow a weak example token on non-loopback HTTP for isolated testing |
+| `COMPUTER_USE_ALLOWED_CLIENT_IPS` | empty | Optional comma-separated direct client IP allowlist; required by the weak-token LAN override |
 | `COMPUTER_USE_HOST` | `127.0.0.1` | HTTP bind address; use `0.0.0.0` only with a strong token on a trusted network |
 | `COMPUTER_USE_PORT` | `7331` | Streamable HTTP port |
 | `COMPUTER_USE_ALLOWED_ORIGINS` | empty | Comma-separated browser origins allowed to call `/mcp` |
@@ -301,7 +302,7 @@ This reduces caller context and expensive multimodal inference for ordinary desk
 
 This server can control the keyboard, pointer, processes, terminal, clipboard, and files of the Windows account that runs it. Treat access as equivalent to interactive access to that account.
 
-- Non-loopback HTTP refuses `change.me` and tokens shorter than 24 characters unless the explicit test-only override is enabled.
+- Non-loopback HTTP refuses `change.me` and tokens shorter than 24 characters unless the explicit test-only override and a direct client-IP allowlist are both configured.
 - Prefer loopback, a trusted private LAN, a VPN, or an authenticated TLS reverse proxy.
 - Bearer tokens sent over plain HTTP can be intercepted by anyone able to observe that network path.
 - Browser requests are rejected unless their Origin is local or appears in `COMPUTER_USE_ALLOWED_ORIGINS`.

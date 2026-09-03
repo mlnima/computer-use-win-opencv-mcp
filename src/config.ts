@@ -3,6 +3,7 @@ import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { config as loadEnv } from 'dotenv';
+import { normalizeIp } from './util/ip';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 loadEnv({ path: path.join(packageRoot, '.env'), quiet: true });
@@ -10,6 +11,7 @@ loadEnv({ path: path.join(packageRoot, '.env'), quiet: true });
 export type ServerConfig = {
   authToken: string;
   allowExampleTokenOnLan: boolean;
+  allowedClientIps: string[];
   host: string;
   port: number;
   allowedOrigins: string[];
@@ -60,6 +62,7 @@ const pathOrUrl = (value?: string) => value
 export const loadConfig = (): ServerConfig => ({
   authToken: process.env.COMPUTER_USE_AUTH_TOKEN || 'change.me',
   allowExampleTokenOnLan: boolValue('COMPUTER_USE_ALLOW_EXAMPLE_TOKEN_ON_LAN', false),
+  allowedClientIps: (process.env.COMPUTER_USE_ALLOWED_CLIENT_IPS || '').split(',').map(normalizeIp).filter((value): value is string => Boolean(value)),
   host: process.env.COMPUTER_USE_HOST || '127.0.0.1',
   port: numberValue('COMPUTER_USE_PORT', 7331),
   allowedOrigins: (process.env.COMPUTER_USE_ALLOWED_ORIGINS || '').split(',').map((value) => value.trim()).filter(Boolean),

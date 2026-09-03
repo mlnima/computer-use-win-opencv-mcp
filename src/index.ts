@@ -6,6 +6,7 @@ import { createRuntimeState } from './runtime/state';
 import { shutdownRuntime } from './runtime/shutdown';
 import { startHttpTransport, type HttpRuntime } from './transport/http';
 import { startStdioTransport } from './transport/stdio';
+import { normalizeIp } from './util/ip';
 
 type TransportMode = 'stdio' | 'http' | 'all';
 
@@ -40,12 +41,13 @@ const main = async () => {
   if (host) config.host = host;
   if (Number.isInteger(port) && port > 0 && port <= 65535) config.port = port;
   const mode = transportMode();
-  const loopback = config.host === 'localhost' || config.host === '::1'
-    || isIP(config.host) === 4 && config.host.split('.')[0] === '127';
+  const normalizedHost = normalizeIp(config.host);
+  const loopback = config.host === 'localhost' || normalizedHost === '::1'
+    || normalizedHost?.split('.')[0] === '127';
   const displayedHost = isIP(config.host) === 6 ? `[${config.host}]` : config.host;
   const weakLanToken = !loopback && (config.authToken === 'change.me' || config.authToken.length < 24);
-  if ((mode === 'http' || mode === 'all') && weakLanToken && !config.allowExampleTokenOnLan) {
-    throw new Error('Non-loopback HTTP requires COMPUTER_USE_AUTH_TOKEN with at least 24 characters and not change.me.');
+  if ((mode === 'http' || mode === 'all') && weakLanToken && (!config.allowExampleTokenOnLan || config.allowedClientIps.length === 0)) {
+    throw new Error('Non-loopback HTTP with a weak token requires COMPUTER_USE_ALLOW_EXAMPLE_TOKEN_ON_LAN=true and COMPUTER_USE_ALLOWED_CLIENT_IPS.');
   }
   if ((mode === 'http' || mode === 'all') && weakLanToken) {
     process.stderr.write('Warning: COMPUTER_USE_ALLOW_EXAMPLE_TOKEN_ON_LAN exposes full computer control with a weak bearer token over plaintext HTTP.\n');
