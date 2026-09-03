@@ -24,7 +24,7 @@ export const verifyPointerWindow = async (prepared: PreparedPointer, signal?: Ab
 
 export const verifyPointerElement = async (prepared: PreparedPointer, signal?: AbortSignal) => {
   if (!prepared.windowHandle || !prepared.uiaRuntimeId || !prepared.elementScreenBounds) return;
-  const current = await getAccessibilityElement(prepared.windowHandle, prepared.uiaRuntimeId, signal);
+  const current = await getAccessibilityElement(prepared.windowHandle, prepared.uiaRuntimeId, signal, prepared.target);
   if (!current || !current.enabled || current.offscreen) throw new Error('Prepared UI Automation element is stale, disabled, or offscreen.');
   if (!boundsNear(current.bounds, prepared.elementScreenBounds) || !pointInBounds(prepared.target, current.bounds)) {
     throw new Error('Prepared UI Automation element moved or changed geometry.');
@@ -33,10 +33,8 @@ export const verifyPointerElement = async (prepared: PreparedPointer, signal?: A
     || semantic(current.value) !== semantic(prepared.uiaValue)) {
     throw new Error('Prepared UI Automation element identity changed.');
   }
-  if (prepared.uiaClickablePoint && (!current.clickablePoint || Math.abs(current.clickablePoint.x - prepared.target.x) > 3
-    || Math.abs(current.clickablePoint.y - prepared.target.y) > 3)) {
-    throw new Error('Prepared UI Automation clickable point changed.');
-  }
+  if (prepared.uiaClickablePoint && !current.clickablePoint) throw new Error('Prepared UI Automation element is no longer clickable.');
+  if (!current.pointerAncestors?.includes(prepared.uiaRuntimeId)) throw new Error('Prepared point no longer resolves to the intended UI Automation element.');
 };
 
 export const verifyPointerHit = async (prepared: Pick<PreparedPointer, 'windowHandle' | 'target'>, signal?: AbortSignal) => {

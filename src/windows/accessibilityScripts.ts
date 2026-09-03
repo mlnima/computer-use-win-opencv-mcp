@@ -1,4 +1,4 @@
-import type { Bounds } from '../types/geometry';
+import type { Bounds, Point } from '../types/geometry';
 import { psLiteral } from './powershell';
 
 const assemblies = `
@@ -92,7 +92,7 @@ actions=@($actions)
 $items.ToArray() | ConvertTo-Json -Depth 6 -Compress`;
 };
 
-export const accessibilityElementScript = (handle: string, runtimeId: string) => `${assemblies}
+export const accessibilityElementScript = (handle: string, runtimeId: string, point?: Point) => `${assemblies}
 $root=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]([Int64]'${handle}'))
 if($null -eq $root){throw 'UI Automation root is unavailable.'}
 $wanted='${psLiteral(runtimeId)}';$walker=[System.Windows.Automation.TreeWalker]::ControlViewWalker
@@ -111,11 +111,22 @@ $current=$element.Current;$rect=$current.BoundingRectangle
 $clickable=New-Object System.Windows.Point;$hasClickable=$element.TryGetClickablePoint([ref]$clickable)
 $pattern=$null;$value=''
 if($element.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern,[ref]$pattern)){$value=[string]$pattern.Current.Value}
+$pointerAncestors=[System.Collections.Generic.List[string]]::new()
+${point ? `$pointElement=[System.Windows.Automation.AutomationElement]::FromPoint([System.Windows.Point]::new(${Math.round(point.x)},${Math.round(point.y)}))
+$pointWalker=[System.Windows.Automation.TreeWalker]::RawViewWalker
+$rootId=($root.GetRuntimeId() -join '.');$ancestor=$pointElement;$ancestorCount=0
+while($null -ne $ancestor -and $ancestorCount -lt 128){
+$ancestorCount++;$ancestorId=($ancestor.GetRuntimeId() -join '.')
+if($ancestorId){$pointerAncestors.Add($ancestorId)}
+if($ancestorId -eq $wanted -or $ancestorId -eq $rootId){break}
+$ancestor=$pointWalker.GetParent($ancestor)
+}` : ''}
 [PSCustomObject]@{
 runtimeId=$wanted;depth=0;role=$current.ControlType.ProgrammaticName.Replace('ControlType.','');name=[string]$current.Name;value=$value
 enabled=[bool]$current.IsEnabled;focused=[bool]$current.HasKeyboardFocus;offscreen=[bool]$current.IsOffscreen;actions=@()
 bounds=[PSCustomObject]@{left=[int]$rect.Left;top=[int]$rect.Top;right=[int]$rect.Right;bottom=[int]$rect.Bottom}
 clickablePoint=$(if($hasClickable){[PSCustomObject]@{x=[int]$clickable.X;y=[int]$clickable.Y}}else{$null})
+pointerAncestors=@($pointerAncestors)
 } | ConvertTo-Json -Depth 4 -Compress`;
 
 export const accessibilityActionScript = (handle: string, runtimeId: string, action: string, value: string) => {

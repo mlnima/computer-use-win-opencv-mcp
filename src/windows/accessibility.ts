@@ -41,7 +41,8 @@ const toNode = (value: Record<string, unknown>): AccessibilityNode => {
     offscreen: value.offscreen === true,
     actions,
     parentId: String(value.parentId || '') || undefined,
-    clickablePoint: toPoint(value.clickablePoint)
+    clickablePoint: toPoint(value.clickablePoint),
+    pointerAncestors: normalizePowerShellArray(value.pointerAncestors as string | string[]).map(String)
   };
 };
 
@@ -73,10 +74,10 @@ export const getAccessibility = async (
     node.runtimeId && validBounds(node.bounds)));
 };
 
-export const getAccessibilityElement = async (handle: string, runtimeId: string, signal?: AbortSignal): Promise<AccessibilityNode | null> => {
+export const getAccessibilityElement = async (handle: string, runtimeId: string, signal?: AbortSignal, point?: Point): Promise<AccessibilityNode | null> => {
   if (!/^\d+$/.test(handle)) throw new Error(`Invalid window handle: ${handle}`);
   if (!/^-?\d+(\.-?\d+)*$/.test(runtimeId)) throw new Error(`Invalid UI Automation runtime ID: ${runtimeId}`);
-  const raw = await runPowerShellJson<Record<string, unknown> | null>(accessibilityElementScript(handle, runtimeId), null, 20_000, signal);
+  const raw = await runPowerShellJson<Record<string, unknown> | null>(accessibilityElementScript(handle, runtimeId, point), null, 20_000, signal);
   return raw ? toNode(raw) : null;
 };
 

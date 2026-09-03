@@ -70,4 +70,5 @@ export type AccessibilityNode = Omit<ScreenElement, 'id' | 'sources' | 'safePoin
   runtimeId: string;
   depth: number;
   clickablePoint?: Point;
+  pointerAncestors?: string[];
 };
