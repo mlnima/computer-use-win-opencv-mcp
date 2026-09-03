@@ -40,7 +40,8 @@ const groundingUnavailable = (warnings: Array<string | undefined>) => warnings.s
   warning?.startsWith('OCR unavailable:') ||
   warning?.startsWith('OpenCV unavailable:') ||
   warning?.startsWith('Vision ranking unavailable:') ||
-  warning === 'Vision model returned no valid element IDs.');
+  warning === 'Vision model returned no valid element IDs.' ||
+  warning === 'Vision model selected no elements.');
 
 const evaluate = async (
   state: RuntimeState,

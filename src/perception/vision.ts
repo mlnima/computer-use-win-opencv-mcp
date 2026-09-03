@@ -72,7 +72,7 @@ export const rankWithVision = async (
         model: config.visionModel,
         temperature: 0,
         messages: [
-          { role: 'system', content: 'Rank only the supplied element IDs for the requested screen target. Return strict JSON as {"ids":["e1"]}. Never invent an ID or return coordinates.' },
+          { role: 'system', content: 'Rank only supplied element IDs that visibly match the requested screen target. Return strict JSON as {"ids":["e1"]}, or {"ids":[]} when uncertain. Never invent an ID or return coordinates.' },
           { role: 'user', content: [
             { type: 'text', text: JSON.stringify({ query, candidates: candidateData }) },
             { type: 'image_url', image_url: { url: `data:${mimeType};base64,${image.toString('base64')}` } }
@@ -84,7 +84,10 @@ export const rankWithVision = async (
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const parsed = parseIds(responseText(await response.json()), allowed);
     const valid = parsed.valid && (parsed.supplied === 0 || parsed.ids.length > 0);
-    return { ids: parsed.ids, used: valid, warning: valid ? undefined : 'Vision model returned no valid element IDs.' };
+    if (!valid) return { ids: [], used: false, warning: 'Vision model returned no valid element IDs.' };
+    return parsed.ids.length > 0
+      ? { ids: parsed.ids, used: true }
+      : { ids: [], used: false, warning: 'Vision model selected no elements.' };
   } catch (error) {
     return { ids: [], used: false, warning: `Vision ranking unavailable: ${error instanceof Error ? error.message : String(error)}` };
   } finally {

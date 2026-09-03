@@ -42,7 +42,7 @@ const observeSchema = z.object({
 
 const locateSchema = z.object({
   observationId: z.string().min(1),
-  query: z.string(),
+  query: z.string().trim().min(1),
   limit: z.number().int().min(1).max(50).default(10),
   useVision: z.boolean().default(false)
 });
@@ -63,8 +63,8 @@ const overlaySchema = z.object({
 const waitSchema = z.object({
   condition: z.discriminatedUnion('kind', [
     z.object({ kind: z.literal('visualChange'), minimumRatio: z.number().min(0).max(1).optional() }),
-    z.object({ kind: z.literal('queryAppears'), query: z.string().min(1), minimumScore: z.number().min(0).max(1.5).optional(), useVision: z.boolean().optional() }),
-    z.object({ kind: z.literal('queryDisappears'), query: z.string().min(1), minimumScore: z.number().min(0).max(1.5).optional(), useVision: z.boolean().optional() })
+    z.object({ kind: z.literal('queryAppears'), query: z.string().trim().min(1), minimumScore: z.number().min(0).max(1.5).optional(), useVision: z.boolean().optional() }),
+    z.object({ kind: z.literal('queryDisappears'), query: z.string().trim().min(1), minimumScore: z.number().min(0).max(1.5).optional(), useVision: z.boolean().optional() })
   ]),
   target: z.enum(['foreground', 'window', 'region', 'desktop']).default('foreground'),
   windowHandle: z.string().optional(),
@@ -129,7 +129,7 @@ const locateResult = async (state: RuntimeState, observationId: string, query: s
     return await withPerceptionDeadline(Date.now() + state.config.visionTimeoutMs + 10_000, async () => {
       const located = await locateObservation(state, observationId, query, { limit, useVision });
       const configured = Boolean(state.config.visionApiUrl && state.config.visionModel);
-      const reasons = locateEvidenceReasons(located.matches);
+      const reasons = locateEvidenceReasons(located.matches, located.warning);
       const observation = requireObservation(state, observationId);
       let resource: Awaited<ReturnType<typeof createObservationOverlay>> | undefined;
       let warning: string | undefined;
@@ -148,6 +148,7 @@ const locateResult = async (state: RuntimeState, observationId: string, query: s
           requested: useVision,
           configured,
           used: located.usedVision,
+          selectedCount: located.matches.filter((match) => match.sources.includes('vision')).length,
           status: visionStatus(useVision, configured, located.usedVision),
           warning: located.warning
         },

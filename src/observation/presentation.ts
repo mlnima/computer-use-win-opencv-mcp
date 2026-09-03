@@ -42,13 +42,15 @@ export const selectDiverseElements = (elements: ScreenElement[], limit: number, 
   return selected;
 };
 
-export const locateEvidenceReasons = (matches: LocateResult['matches']) => {
+export const locateEvidenceReasons = (matches: LocateResult['matches'], warning?: string) => {
   const top = matches[0];
   const second = matches[1];
-  const reasons: Array<'no_matches' | 'ambiguous_matches' | 'opencv_only'> = [];
+  const reasons: Array<'no_matches' | 'ambiguous_matches' | 'opencv_only' | 'vision_rank' | 'vision_no_selection'> = [];
   if (!top) reasons.push('no_matches');
   if (top && (top.score < 0.52 || Boolean(second && top.score - second.score < 0.12))) reasons.push('ambiguous_matches');
-  if (top?.sources.length === 1 && top.sources[0] === 'opencv') reasons.push('opencv_only');
+  if (top?.sources.includes('opencv') && top.sources.every((source) => source === 'opencv' || source === 'vision')) reasons.push('opencv_only');
+  if (top?.sources.includes('vision')) reasons.push('vision_rank');
+  if (warning === 'Vision model selected no elements.') reasons.push('vision_no_selection');
   return reasons;
 };
 
