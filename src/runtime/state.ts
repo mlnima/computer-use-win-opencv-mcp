@@ -55,7 +55,7 @@ export const cleanExpiredState = (state: RuntimeState) => {
   }
   for (const [id, terminal] of state.terminals) {
     if (terminal.lastUsedAt + state.config.terminalIdleMs > now) continue;
-    try { terminal.pty.kill(); } catch {}
+    void terminal.close().catch(() => undefined);
     state.terminals.delete(id);
   }
 };

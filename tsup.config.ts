@@ -1,7 +1,10 @@
 import { defineConfig } from 'tsup';
 
 export default defineConfig({
-  entry: ['src/index.ts'],
+  entry: {
+    index: 'src/index.ts',
+    terminalWorker: 'src/services/terminalWorker.ts'
+  },
   format: ['esm'],
   target: 'node24',
   platform: 'node',

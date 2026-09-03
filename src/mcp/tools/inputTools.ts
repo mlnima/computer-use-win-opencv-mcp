@@ -150,7 +150,7 @@ const registerKeyboard = (server: McpServer, state: RuntimeState, clientId: stri
 
 const registerTimeline = (server: McpServer, state: RuntimeState, clientId: string) => server.registerTool('computer_input_timeline', {
   title: 'Timed input sequence',
-  description: 'Execute a bounded timestamped sequence of relative/absolute mouse, scan-code key, text, button, and wheel events.',
+  description: 'Batch a bounded timestamped sequence of relative/absolute mouse, scan-code key, text, button, and wheel events for drawing, 3D, games, or other ordered input.',
   inputSchema: timelineSchema,
   annotations: { readOnlyHint: false, destructiveHint: true }
 }, ({ leaseId, events, keyMethod, preserveHeld, windowHandle }, extra) => runTool(async () => {

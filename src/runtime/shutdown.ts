@@ -2,6 +2,7 @@ import type { RuntimeState } from '../types/runtime';
 import { shutdownInput } from '../input/cleanup';
 import { terminateOcr } from '../perception/ocr';
 import { terminateOpenCv } from '../perception/opencv';
+import { closeTerminalWorker } from '../services/terminalWorkerClient';
 
 export const shutdownRuntime = async (state: RuntimeState) => {
   if (state.closing) return;
@@ -14,9 +15,10 @@ export const shutdownRuntime = async (state: RuntimeState) => {
   const workers = await Promise.allSettled([terminateOcr(), terminateOpenCv()]);
   for (const result of workers) if (result.status === 'rejected') failures.push(result.reason);
   for (const session of state.terminals.values()) {
-    try { session.pty.kill(); } catch (error) { failures.push(error); }
+    try { await session.close(); } catch (error) { failures.push(error); }
   }
   state.terminals.clear();
+  try { await closeTerminalWorker(state); } catch (error) { failures.push(error); }
   state.preparedPointers.clear();
   state.observations.clear();
   state.screenshots.clear();

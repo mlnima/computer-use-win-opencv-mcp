@@ -1,5 +1,4 @@
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
-import type { IPty } from '@lydell/node-pty';
 import type { ServerConfig } from '../config';
 import type { DragState, PreparedPointer } from './input';
 import type { Observation, ScreenshotRecord } from './perception';
@@ -17,7 +16,10 @@ export type StoredResource = {
 
 export type TerminalSession = {
   id: string;
-  pty: IPty;
+  processId: number;
+  write: (data: string) => Promise<void>;
+  resize: (columns: number, rows: number) => Promise<void>;
+  close: () => Promise<void>;
   output: string;
   baseOffset: number;
   cursor: number;
@@ -42,6 +44,7 @@ export type RuntimeState = {
   trace: TraceEvent[];
   drag?: DragState;
   inputWorker?: ChildProcessWithoutNullStreams;
+  terminalWorker?: ChildProcessWithoutNullStreams;
   inputQueue: Promise<unknown>;
   stateSweepTimer?: NodeJS.Timeout;
   control: {

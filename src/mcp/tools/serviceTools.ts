@@ -132,10 +132,11 @@ const registerTerminal = (server: McpServer, state: RuntimeState, clientId: stri
     createTerminal(state, shell, cwd, columns, rows, signal));
   const id = required(sessionId, 'sessionId');
   if (action === 'read') return readTerminal(state, id, from, maxChars, extra.signal);
-  return await runDesktopMutation(state, clientId, leaseId, extra.signal, (signal) => action === 'write'
-    ? writeTerminal(state, id, required(data, 'data'), signal)
-    : action === 'resize' ? resizeTerminal(state, id, columns, rows, signal)
-      : closeTerminal(state, id, signal));
+  return await runDesktopMutation(state, clientId, leaseId, extra.signal, async (signal) => {
+    if (action === 'write') return await writeTerminal(state, id, required(data, 'data'), signal);
+    if (action === 'resize') return await resizeTerminal(state, id, columns, rows, signal);
+    return await closeTerminal(state, id, signal);
+  });
 }));
 
 const registerTrace = (server: McpServer, state: RuntimeState) => server.registerTool('computer_trace', {

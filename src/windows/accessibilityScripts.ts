@@ -39,7 +39,7 @@ $cache.TreeScope=[System.Windows.Automation.TreeScope]::Element
 ) | ForEach-Object {$cache.Add($_)}
 function Get-CachedValue($element,$property){
 $value=$element.GetCachedPropertyValue($property,$true)
-if($value -eq [System.Windows.Automation.AutomationElement]::NotSupported){return $null}
+if([object]::ReferenceEquals($value,[System.Windows.Automation.AutomationElement]::NotSupported)){return $null}
 return $value
 }
 $walker=[System.Windows.Automation.TreeWalker]::ControlViewWalker

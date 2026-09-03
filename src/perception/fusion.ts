@@ -2,6 +2,7 @@ import type { ElementSource, ScreenElement } from '../types/perception';
 import { boundsArea, containment, containsPoint, intersectionOverUnion, safePointForBounds, unionBounds } from './geometry';
 
 const sourcePriority: Record<ElementSource, number> = { uia: 4, vision: 3, ocr: 2, opencv: 1 };
+const pointerActions = new Set<ScreenElement['actions'][number]>(['click', 'doubleClick', 'rightClick', 'drag']);
 
 const normalizedText = (value: string) => value.normalize('NFKC').toLocaleLowerCase().replace(/\s+/g, ' ').trim();
 
@@ -122,7 +123,13 @@ const updateSafePoints = (elements: ScreenElement[]) => {
     const blockers = elements.filter((candidate) => isDescendant(candidate, element.id, byId)).map((candidate) => candidate.bounds);
     if (!blockers.some((blocker) => containsPoint(blocker, element.safePoint))) return element;
     const safePoint = safePointForBounds(element.bounds, blockers);
-    return safePoint ? { ...element, safePoint } : { ...element, enabled: false, actions: [] };
+    if (safePoint) return { ...element, safePoint };
+    if (!element.sources.includes('uia')) return { ...element, enabled: false, actions: [] };
+    return {
+      ...element,
+      actions: element.actions.filter((action) => !pointerActions.has(action)),
+      evidence: unique([...(element.evidence || []), 'no_unblocked_safe_point'])
+    };
   });
 };
 

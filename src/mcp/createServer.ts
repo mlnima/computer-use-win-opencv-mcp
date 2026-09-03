@@ -7,7 +7,7 @@ import { registerObservationTools } from './tools/observationTools';
 import { registerServiceTools } from './tools/serviceTools';
 import { registerSystemTools } from './tools/systemTools';
 
-const instructions = `Acquire a session-bound input lease with computer_control before any desktop mutation. Ground targets with computer_observe and computer_locate, then prefer snapshot-scoped element IDs and verified prepare/commit pointer actions. Use deep perception or optional vision ranking for canvas, 3D, and game scenes. Refine a vision:grid element through computer_observe region inputs before acting unless the caller explicitly accepts its coarse center. Never guess a coordinate when the server reports ambiguity or stale state.`;
+const instructions = `Acquire a session-bound input lease with computer_control before any desktop mutation. Ground targets with computer_observe and computer_locate, then prefer snapshot-scoped element IDs and verified prepare/commit pointer actions. Use fast or standard local perception for routine UI and reserve deep or optional vision ranking for ambiguous canvas, 3D, and game scenes. Batch multi-stroke drawing, continuous 3D or game control, and other ordered input into one computer_input_timeline call. Refine a vision:grid element through computer_observe region inputs before acting unless the caller explicitly accepts its coarse center. Never guess a coordinate when the server reports ambiguity or stale state.`;
 
 export const createMcpServer = (state: RuntimeState, clientId: string) => {
   const server = new McpServer(
