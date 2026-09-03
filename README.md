@@ -118,6 +118,24 @@ Clients must send:
 Authorization: Bearer change.me
 ```
 
+A common `mcpServers` JSON configuration for a Streamable HTTP client is:
+
+```json
+{
+  "mcpServers": {
+    "computer-use-win-opencv": {
+      "type": "streamable-http",
+      "url": "http://127.0.0.1:7331/mcp",
+      "headers": {
+        "Authorization": "Bearer change.me"
+      }
+    }
+  }
+}
+```
+
+For LAN use, replace `127.0.0.1` with the Windows computer's IP address and replace `change.me` with the same strong token configured on the server. Client configuration field names can vary; clients that label this transport `http` should use that label while keeping the same MCP URL and authorization header.
+
 The authenticated health endpoint is `GET /health`. The server implements MCP Streamable HTTP session initialization, POST requests, SSE streaming through GET, session deletion, bounded concurrent initialization, and idle-session cleanup. Each network session receives its own MCP transport while all sessions coordinate through one hardware-input queue and one mandatory exclusive lease for desktop mutations.
 
 For another computer on the local network, set `COMPUTER_USE_HOST=0.0.0.0`, replace `change.me` with a random token of at least 24 characters, start the server, and connect to `http://<windows-computer-ip>:7331/mcp`. Prefer a trusted LAN, VPN, or TLS reverse proxy because bearer tokens and MCP traffic are otherwise plaintext.
