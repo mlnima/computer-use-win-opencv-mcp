@@ -36,9 +36,11 @@ const mergeElement = (target: ScreenElement, candidate: ScreenElement): ScreenEl
   const targetHasUia = target.sources.includes('uia');
   const candidateHasUia = candidate.sources.includes('uia');
   const preferCandidateName = !target.name && Boolean(candidate.name);
-  const detectedSafePoint = targetHasUia && candidate.sources.includes('opencv')
+  const targetDetected = target.sources.some((source) => source === 'ocr' || source === 'opencv');
+  const candidateDetected = candidate.sources.some((source) => source === 'ocr' || source === 'opencv');
+  const detectedSafePoint = targetHasUia && candidateDetected
     ? candidate.safePoint
-    : candidateHasUia && target.sources.includes('opencv') ? target.safePoint : undefined;
+    : candidateHasUia && targetDetected ? target.safePoint : undefined;
   return {
     ...target,
     role: target.role === 'visual' || target.role === 'region' ? candidate.role || target.role : target.role,
@@ -53,7 +55,11 @@ const mergeElement = (target: ScreenElement, candidate: ScreenElement): ScreenEl
     actions: unique([...target.actions, ...candidate.actions]),
     sources: unique([...target.sources, ...candidate.sources]).sort((first, second) => sourcePriority[second] - sourcePriority[first]),
     uiaRuntimeId: target.uiaRuntimeId || candidate.uiaRuntimeId,
-    uiaClickablePoint: target.uiaClickablePoint || candidate.uiaClickablePoint
+    uiaClickablePoint: target.uiaClickablePoint || candidate.uiaClickablePoint,
+    uiaRole: target.uiaRole ?? candidate.uiaRole,
+    uiaName: target.uiaName ?? candidate.uiaName,
+    uiaValue: target.uiaValue ?? candidate.uiaValue,
+    evidence: unique([...(target.evidence || []), ...(candidate.evidence || [])])
   };
 };
 

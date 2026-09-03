@@ -32,6 +32,9 @@ export const accessibilityElements = (
     sources: ['uia'],
     uiaRuntimeId: node.runtimeId,
     uiaClickablePoint: Boolean(validClickablePoint),
+    uiaRole: node.role || 'control',
+    uiaName: node.name || '',
+    uiaValue: node.value,
     parentId: node.parentId,
     children: node.children
   }];

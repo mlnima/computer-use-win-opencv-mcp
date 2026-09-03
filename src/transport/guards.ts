@@ -1,4 +1,5 @@
 import { timingSafeEqual } from 'node:crypto';
+import { isIP } from 'node:net';
 import type { NextFunction, Request, Response } from 'express';
 import type { ServerConfig } from '../config';
 
@@ -8,12 +9,15 @@ const equalToken = (provided: string, expected: string) => {
   return first.length === second.length && timingSafeEqual(first, second);
 };
 
-const defaultOrigins = (config: ServerConfig) => new Set([
+const defaultOrigins = (config: ServerConfig) => {
+  const host = isIP(config.host) === 6 ? `[${config.host}]` : config.host;
+  return new Set([
   `http://127.0.0.1:${config.port}`,
   `http://localhost:${config.port}`,
-  config.host !== '0.0.0.0' ? `http://${config.host}:${config.port}` : '',
+  config.host !== '0.0.0.0' ? `http://${host}:${config.port}` : '',
   ...config.allowedOrigins
-].filter(Boolean));
+  ].filter(Boolean));
+};
 
 const setCors = (response: Response, origin: string) => {
   response.setHeader('Access-Control-Allow-Origin', origin);

@@ -19,6 +19,9 @@ export type PreparedDragDestination = DragDestination & {
   expectedWindow?: WindowInfo;
   elementBounds?: Bounds;
   uiaRuntimeId?: string;
+  uiaRole?: string;
+  uiaName?: string;
+  uiaValue?: string;
   visualBounds?: Bounds;
   snapshotDifference?: number;
 };
@@ -33,6 +36,8 @@ const boundsNear = (first: Bounds, second: Bounds, tolerance = 3) =>
     Math.abs(first.right - second.right),
     Math.abs(first.bottom - second.bottom)
   ) <= tolerance;
+
+const semantic = (value?: string) => (value || '').normalize('NFKC').replace(/\s+/g, ' ').trim().toLocaleLowerCase();
 
 export const preflightDragDestination = async (
   state: RuntimeState,
@@ -49,17 +54,22 @@ export const preflightDragDestination = async (
     ? imageToScreenBounds(destination.observation, destination.element.bounds)
     : undefined;
   const uiaRuntimeId = destination.element?.uiaRuntimeId;
+  const uiaRole = destination.element?.uiaRole;
+  const uiaName = destination.element?.uiaName;
+  const uiaValue = destination.element?.uiaValue;
   if (uiaRuntimeId && expectedWindow && elementBounds) {
     const accessible = await getAccessibilityElement(expectedWindow.handle, uiaRuntimeId, execution.signal);
     execution.assertActive();
     if (!accessible || !accessible.enabled || accessible.offscreen || !boundsNear(accessible.bounds, elementBounds)
+      || semantic(accessible.role) !== semantic(uiaRole) || semantic(accessible.name) !== semantic(uiaName)
+      || semantic(accessible.value) !== semantic(uiaValue)
       || !pointInBounds(destination.point, accessible.bounds)) {
       throw new Error('Drag destination element is stale, moved, or unavailable.');
     }
   }
   const visualBounds = destination.observation ? targetVisualRegion(destination.point, elementBounds) : undefined;
   let snapshotDifference: number | undefined;
-  if (destination.observation && visualBounds && !uiaRuntimeId) {
+  if (destination.observation && visualBounds) {
     const hit = await windowFromPoint(destination.point, execution.signal);
     execution.assertActive();
     if (!hit || expectedWindow && hit.handle !== expectedWindow.handle) throw new Error('Observed drag destination is currently occluded.');
@@ -67,7 +77,7 @@ export const preflightDragDestination = async (
     const current = await captureObservationSample(state, destination.observation, visualBounds, execution.signal);
     snapshotDifference = verifyVisualSamples(state, original, current, 'Observed drag destination changed before movement');
   }
-  return { ...destination, expectedWindow: currentWindow || expectedWindow, elementBounds, uiaRuntimeId, visualBounds, snapshotDifference };
+  return { ...destination, expectedWindow: currentWindow || expectedWindow, elementBounds, uiaRuntimeId, uiaRole, uiaName, uiaValue, visualBounds, snapshotDifference };
 };
 
 export const bindDragDestination = async (
@@ -90,6 +100,9 @@ export const bindDragDestination = async (
     destinationWindowHandle: hit.handle,
     destinationWindowBounds: hit.bounds,
     destinationUiaRuntimeId: destination.uiaRuntimeId,
+    destinationUiaRole: destination.uiaRole,
+    destinationUiaName: destination.uiaName,
+    destinationUiaValue: destination.uiaValue,
     destinationElementBounds: destination.elementBounds,
     destinationVisualBounds: visualBounds,
     destinationVisualSample: visualSample
@@ -117,6 +130,8 @@ export const verifyDragDestination = async (
       || !boundsNear(accessible.bounds, drag.destinationElementBounds) || !pointInBounds(drag.point, accessible.bounds)) {
       throw new Error('Drag destination element changed before release.');
     }
+    if (semantic(accessible.role) !== semantic(drag.destinationUiaRole) || semantic(accessible.name) !== semantic(drag.destinationUiaName)
+      || semantic(accessible.value) !== semantic(drag.destinationUiaValue)) throw new Error('Drag destination element identity changed before release.');
   }
   let visualDifference: number | undefined;
   if (drag.destinationVisualBounds && drag.destinationVisualSample) {

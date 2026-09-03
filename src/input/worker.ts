@@ -4,6 +4,7 @@ import path from 'node:path';
 import process from 'node:process';
 import readline from 'node:readline';
 import type { RuntimeState } from '../types/runtime';
+import { childEnvironment } from '../util/childEnvironment';
 import type { NativeCommand, WorkerClient, WorkerResponse } from './protocol';
 import { inputWorkerScript, nativeInputSourceBase64 } from './workerScript';
 
@@ -34,7 +35,7 @@ const createClient = (state: RuntimeState): WorkerClient => {
   ], {
     stdio: ['pipe', 'pipe', 'pipe'],
     windowsHide: true,
-    env: { ...process.env, COMPUTER_USE_NATIVE_INPUT_SOURCE: nativeInputSourceBase64 }
+    env: childEnvironment({ COMPUTER_USE_NATIVE_INPUT_SOURCE: nativeInputSourceBase64 })
   });
   state.inputWorker = child;
   const pending = new Map<string, PendingRequest>();

@@ -99,9 +99,9 @@ const enumerateWindows = async (): Promise<WindowInfo[]> => {
     .sort((a, b) => Number(b.foreground) - Number(a.foreground) || a.title.localeCompare(b.title));
 };
 
-export const listWindows = async (signal?: AbortSignal): Promise<WindowInfo[]> => {
+export const listWindows = async (signal?: AbortSignal, refresh = false): Promise<WindowInfo[]> => {
   if (signal?.aborted) throw abortError(signal);
-  if (windowCache && Date.now() - windowCache.at < 3_000) return windowCache.windows;
+  if (!refresh && windowCache && Date.now() - windowCache.at < 3_000) return windowCache.windows;
   windowRequest ||= enumerateWindows().then((windows) => {
     windowCache = { at: Date.now(), windows };
     return windows;
@@ -133,7 +133,7 @@ bounds=[PSCustomObject]@{left=$rect.Left;top=$rect.Top;right=$rect.Right;bottom=
 };
 
 export const foregroundWindow = async (signal?: AbortSignal): Promise<WindowInfo | null> =>
-  (await listWindows(signal)).find((entry) => entry.foreground) || null;
+  (await listWindows(signal, true)).find((entry) => entry.foreground) || null;
 
 export const getCursor = async (signal?: AbortSignal): Promise<Point> =>
   await runPowerShellJson<Point>(`

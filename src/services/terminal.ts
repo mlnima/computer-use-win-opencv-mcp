@@ -2,6 +2,7 @@ import os from 'node:os';
 import * as pty from '@lydell/node-pty';
 import type { RuntimeState, TerminalSession } from '../types/runtime';
 import { newId } from '../runtime/state';
+import { childEnvironment } from '../util/childEnvironment';
 
 const assertActive = (signal?: AbortSignal) => signal?.throwIfAborted();
 
@@ -14,7 +15,7 @@ export const createTerminal = (state: RuntimeState, shell?: string, cwd?: string
     cols: columns,
     rows,
     cwd: cwd || os.homedir(),
-    env: { ...processEnv(), TERM: 'xterm-256color' }
+    env: childEnvironment({ TERM: 'xterm-256color' }) as Record<string, string>
   });
   const session: TerminalSession = { id, pty: process, output: '', baseOffset: 0, cursor: 0, createdAt: Date.now(), lastUsedAt: Date.now() };
   process.onData((data) => {
@@ -28,10 +29,6 @@ export const createTerminal = (state: RuntimeState, shell?: string, cwd?: string
   state.terminals.set(id, session);
   return { id, processId: process.pid, columns, rows };
 };
-
-const processEnv = (): Record<string, string> => Object.fromEntries(
-  Object.entries(process.env).filter((entry): entry is [string, string] => typeof entry[1] === 'string')
-);
 
 const getTerminal = (state: RuntimeState, id: string, signal?: AbortSignal) => {
   assertActive(signal);

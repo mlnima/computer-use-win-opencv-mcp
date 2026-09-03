@@ -43,7 +43,8 @@ export const targetPoint = (
   const element = input.elementId ? requireElement(observation, input.elementId) : undefined;
   if (element && element.confidence < 0.25) throw new Error('Element confidence is too low for physical input.');
   if (element?.id.startsWith('vision:grid:') && !input.allowRaw) throw new Error('Vision grid targets are coarse. Observe this element as a region first, or set allowRaw to accept its center explicitly.');
-  if (element?.sources.includes('uia') && !element.uiaClickablePoint && !element.sources.includes('opencv') && !input.allowRaw) throw new Error('This UI Automation element has no verified clickable point. Use computer_accessibility, a detector-backed target, or allowRaw explicitly.');
+  const detectorBacked = element?.sources.some((source) => source === 'ocr' || source === 'opencv');
+  if (element?.sources.includes('uia') && !element.uiaClickablePoint && !detectorBacked && !input.allowRaw) throw new Error('This UI Automation element has no verified clickable point. Use computer_accessibility, a detector-backed target, or allowRaw explicitly.');
   const local = element?.safePoint || (input.x !== undefined && input.y !== undefined ? { x: input.x, y: input.y } : undefined);
   if (!local) throw new Error('elementId or screenshot-local x and y are required.');
   if (!element && !input.allowRaw) {

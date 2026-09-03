@@ -1,4 +1,5 @@
 import process from 'node:process';
+import { isIP } from 'node:net';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { loadConfig } from './config';
 import { createRuntimeState } from './runtime/state';
@@ -39,9 +40,15 @@ const main = async () => {
   if (host) config.host = host;
   if (Number.isInteger(port) && port > 0 && port <= 65535) config.port = port;
   const mode = transportMode();
-  const loopback = config.host === 'localhost' || config.host === '::1' || /^127\./.test(config.host);
-  if ((mode === 'http' || mode === 'all') && !loopback && (config.authToken === 'change.me' || config.authToken.length < 24)) {
+  const loopback = config.host === 'localhost' || config.host === '::1'
+    || isIP(config.host) === 4 && config.host.split('.')[0] === '127';
+  const displayedHost = isIP(config.host) === 6 ? `[${config.host}]` : config.host;
+  const weakLanToken = !loopback && (config.authToken === 'change.me' || config.authToken.length < 24);
+  if ((mode === 'http' || mode === 'all') && weakLanToken && !config.allowExampleTokenOnLan) {
     throw new Error('Non-loopback HTTP requires COMPUTER_USE_AUTH_TOKEN with at least 24 characters and not change.me.');
+  }
+  if ((mode === 'http' || mode === 'all') && weakLanToken) {
+    process.stderr.write('Warning: COMPUTER_USE_ALLOW_EXAMPLE_TOKEN_ON_LAN exposes full computer control with a weak bearer token over plaintext HTTP.\n');
   }
   const state = createRuntimeState(config);
   let stdio: McpServer | undefined;
@@ -80,7 +87,7 @@ const main = async () => {
       if (stopping) await started.close();
       else {
         http = started;
-        process.stderr.write(`MCP Streamable HTTP listening on http://${config.host}:${config.port}/mcp\n`);
+        process.stderr.write(`MCP Streamable HTTP listening on http://${displayedHost}:${config.port}/mcp\n`);
         if (config.authToken === 'change.me') process.stderr.write('Warning: replace the example bearer token before using an untrusted network.\n');
       }
     }

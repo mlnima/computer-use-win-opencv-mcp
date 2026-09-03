@@ -127,7 +127,7 @@ export const locateElements = async (params: {
   const candidates = visionCandidates(params.elements, ranked, params.query, params.width, params.height);
   let overlay: Buffer;
   try {
-    overlay = await renderSetOfMark(params.image, candidates, params.width, params.height, candidates.length);
+    overlay = await renderSetOfMark(params.image, candidates, params.width, params.height, candidates.length, params.config.screenshotMaxBytes);
   } catch (error) {
     return {
       observationId: params.observationId,

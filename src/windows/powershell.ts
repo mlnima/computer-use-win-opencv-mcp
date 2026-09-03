@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { childEnvironment } from '../util/childEnvironment';
 
 const execFileAsync = promisify(execFile);
 
@@ -33,7 +34,7 @@ ${script}`;
     const { stdout } = await execFileAsync(
       'powershell.exe',
       ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', encoded],
-      { maxBuffer: 64 * 1024 * 1024, timeout, windowsHide: true, signal }
+      { maxBuffer: 64 * 1024 * 1024, timeout, windowsHide: true, signal, env: childEnvironment() }
     );
     return stdout.trim();
   } catch (cause) {

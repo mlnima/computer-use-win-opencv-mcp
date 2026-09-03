@@ -2,6 +2,7 @@ import { performance } from 'node:perf_hooks';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { bindDragDestination, preflightDragDestination, verifyDragDestination } from '../../actions/dragDestination';
+import { performGroundedAccessibilityAction } from '../../actions/groundedAccessibility';
 import { compactObservation, requireElement, requireObservation, targetPoint } from '../../actions/observations';
 import { commitGroundedPointer, consumeGroundedPointer, prepareGroundedPointer } from '../../actions/groundedPointer';
 import { releaseHeldInputs } from '../../input/cleanup';
@@ -20,10 +21,8 @@ import { runInputTimeline } from '../../input/timeline';
 import { createObservation } from '../../observation/create';
 import { assertControl } from '../../runtime/control';
 import { recordTrace } from '../../runtime/state';
-import type { Bounds } from '../../types/geometry';
 import type { RuntimeState } from '../../types/runtime';
-import { performAccessibilityAction } from '../../windows/accessibility';
-import { focusWindow, getWindow } from '../../windows/windows';
+import { focusWindow } from '../../windows/windows';
 import {
   accessibilitySchema,
   commitPointerSchema,
@@ -41,9 +40,6 @@ const required = <T>(value: T | undefined, name: string): T => {
   if (value === undefined || value === '') throw new Error(`${name} is required for this action.`);
   return value;
 };
-
-const sameBounds = (first: Bounds, second: Bounds) =>
-  first.left === second.left && first.top === second.top && first.right === second.right && first.bottom === second.bottom;
 
 const fastObservation = async (state: RuntimeState, windowHandle?: string, signal?: AbortSignal) => {
   const observation = await createObservation(state, {
@@ -265,14 +261,14 @@ const registerAccessibility = (server: McpServer, state: RuntimeState, clientId:
   const element = observation && elementId ? requireElement(observation, elementId) : undefined;
   const handle = observation?.window?.handle || required(windowHandle, 'windowHandle');
   const id = element?.uiaRuntimeId || required(runtimeId, 'runtimeId');
-  const result = await runInputTransaction(state, async ({ guard, execution }) => {
-    if (observation?.window) {
-      const current = await getWindow(handle, execution.signal);
-      if (!current || !sameBounds(current.bounds, observation.window.bounds)) throw new Error('Accessibility target window geometry is stale.');
-    }
-    guard();
-    return await performAccessibilityAction(handle, id, action, value, execution.signal);
-  }, { deadlineMs: 25_000, owner: { clientId, leaseId: lease.id }, signal: extra.signal });
+  const result = await runInputTransaction(state, async ({ guard, execution }) => await performGroundedAccessibilityAction({
+    observation,
+    element,
+    handle,
+    runtimeId: id,
+    action,
+    value: value || ''
+  }, guard, execution), { deadlineMs: 25_000, owner: { clientId, leaseId: lease.id }, signal: extra.signal });
   const post = observeAfter ? await fastObservation(state, handle, extra.signal).catch(() => undefined) : undefined;
   return { action, windowHandle: handle, runtimeId: id, result, post };
 }));

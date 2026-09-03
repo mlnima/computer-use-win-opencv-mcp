@@ -4,8 +4,26 @@ import type { Bounds } from '../types/geometry';
 
 export const hashImage = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
 
-const sampleImage = async (bytes: Buffer) =>
-  (await sharp(bytes).resize(128, 128, { fit: 'fill' }).greyscale().raw().toBuffer()).subarray(0, 128 * 128);
+const featureSample = async (bytes: Buffer, size: number) => {
+  const count = size * size;
+  const pixels = (await sharp(bytes).resize(size, size, { fit: 'fill' }).removeAlpha().toColourspace('srgb').raw().toBuffer()).subarray(0, count * 3);
+  if (pixels.length !== count * 3) throw new Error('Image color sampling failed.');
+  const luminance = Buffer.allocUnsafe(count);
+  const edges = Buffer.alloc(count);
+  for (let index = 0; index < count; index += 1) {
+    const offset = index * 3;
+    luminance[index] = Math.round(pixels[offset]! * 0.2126 + pixels[offset + 1]! * 0.7152 + pixels[offset + 2]! * 0.0722);
+  }
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      const index = y * size + x;
+      const horizontal = x + 1 < size ? Math.abs(luminance[index]! - luminance[index + 1]!) : 0;
+      const vertical = y + 1 < size ? Math.abs(luminance[index]! - luminance[index + size]!) : 0;
+      edges[index] = Math.min(255, horizontal + vertical);
+    }
+  }
+  return Buffer.concat([pixels, edges]);
+};
 
 export const sampleScreenRegion = async (bytes: Buffer, imageBounds: Bounds, region: Bounds) => {
   const metadata = await sharp(bytes).metadata();
@@ -19,26 +37,23 @@ export const sampleScreenRegion = async (bytes: Buffer, imageBounds: Bounds, reg
   const right = Math.min(width, Math.ceil((region.right - imageBounds.left) * width / screenWidth));
   const bottom = Math.min(height, Math.ceil((region.bottom - imageBounds.top) * height / screenHeight));
   if (right <= left || bottom <= top) throw new Error('Verification region is outside the current capture.');
-  return await sharp(bytes)
+  const crop = await sharp(bytes)
     .extract({ left, top, width: right - left, height: bottom - top })
-    .resize(64, 64, { fit: 'fill' })
-    .greyscale()
-    .raw()
     .toBuffer();
+  return await featureSample(crop, 64);
 };
 
 export const sampleDifferenceRatio = (first: Buffer, second: Buffer) => {
-  const length = Math.min(first.length, second.length);
-  if (!length || first.length !== second.length) return 1;
-  let difference = 0;
-  for (let index = 0; index < length; index += 1) difference += Math.abs(first[index]! - second[index]!);
-  return difference / (length * 255);
+  if (!first.length || first.length !== second.length || first.length % 4 !== 0) return 1;
+  const pixelCount = first.length / 4;
+  let colorDifference = 0;
+  let edgeDifference = 0;
+  for (let index = 0; index < pixelCount * 3; index += 1) colorDifference += Math.abs(first[index]! - second[index]!);
+  for (let index = pixelCount * 3; index < first.length; index += 1) edgeDifference += Math.abs(first[index]! - second[index]!);
+  return colorDifference / (pixelCount * 3 * 255) * 0.7 + edgeDifference / (pixelCount * 255) * 0.3;
 };
 
 export const imageDifferenceRatio = async (previous: Buffer, current: Buffer) => {
-  const [first, second] = await Promise.all([sampleImage(previous), sampleImage(current)]);
-  const length = Math.min(first.length, second.length);
-  let difference = 0;
-  for (let index = 0; index < length; index += 1) difference += Math.abs(first[index]! - second[index]!);
-  return length > 0 ? difference / (length * 255) : 1;
+  const [first, second] = await Promise.all([featureSample(previous, 128), featureSample(current, 128)]);
+  return sampleDifferenceRatio(first, second);
 };

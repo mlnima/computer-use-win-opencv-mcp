@@ -76,8 +76,10 @@ while($null -ne $child){$queue.Enqueue($child);$child=$walker.GetNextSibling($ch
 if($null -eq $element){return}
 $current=$element.Current;$rect=$current.BoundingRectangle
 $clickable=New-Object System.Windows.Point;$hasClickable=$element.TryGetClickablePoint([ref]$clickable)
+$pattern=$null;$value=''
+if($element.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern,[ref]$pattern)){$value=[string]$pattern.Current.Value}
 [PSCustomObject]@{
-runtimeId=$wanted;depth=0;role=$current.ControlType.ProgrammaticName.Replace('ControlType.','');name=[string]$current.Name
+runtimeId=$wanted;depth=0;role=$current.ControlType.ProgrammaticName.Replace('ControlType.','');name=[string]$current.Name;value=$value
 enabled=[bool]$current.IsEnabled;focused=[bool]$current.HasKeyboardFocus;offscreen=[bool]$current.IsOffscreen;actions=@()
 bounds=[PSCustomObject]@{left=[int]$rect.Left;top=[int]$rect.Top;right=[int]$rect.Right;bottom=[int]$rect.Bottom}
 clickablePoint=$(if($hasClickable){[PSCustomObject]@{x=[int]$clickable.X;y=[int]$clickable.Y}}else{$null})

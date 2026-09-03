@@ -23,6 +23,9 @@ export type ObserveOptions = {
   includeOcr?: boolean;
   includeOpenCv?: boolean;
   includeOverlay?: boolean;
+  analysisLevel?: 'fast' | 'standard' | 'deep';
+  maxAccessibilityNodes?: number;
+  accessibilityTimeoutMs?: number;
   signal?: AbortSignal;
 };
 
@@ -65,15 +68,17 @@ const accessibilityForTarget = async (
   bounds: Bounds,
   state: RuntimeState,
   enabled: boolean,
+  maxNodes: number,
+  timeoutLimitMs: number,
   signal?: AbortSignal
 ) => {
   const startedAt = performance.now();
   if (!handle || !enabled) return { nodes: [], warning: undefined, elapsed: 0 };
   try {
     const deadlineAt = currentPerceptionDeadline();
-    const timeoutMs = deadlineAt === undefined ? 20_000 : Math.max(1, deadlineAt - Date.now());
+    const timeoutMs = deadlineAt === undefined ? timeoutLimitMs : Math.max(1, Math.min(timeoutLimitMs, deadlineAt - Date.now()));
     return {
-      nodes: await getAccessibility(handle, state.config.maxElements * 4, bounds, timeoutMs, signal),
+      nodes: await getAccessibility(handle, maxNodes, bounds, timeoutMs, signal),
       warning: undefined,
       elapsed: performance.now() - startedAt
     };
@@ -94,7 +99,8 @@ export const createObservation = async (
   const contextSignal = currentPerceptionSignal();
   const signal = options.signal && contextSignal ? AbortSignal.any([options.signal, contextSignal]) : options.signal || contextSignal;
   assertObservationActive(state, signal);
-  const windows = await listWindows(signal);
+  const refreshWindows = !options.windowHandle && options.target !== 'desktop' && options.target !== 'region';
+  const windows = await listWindows(signal, refreshWindows);
   assertObservationActive(state, signal);
   const window = requireTarget(options, windows);
   const capture = await captureTarget({
@@ -103,12 +109,21 @@ export const createObservation = async (
     includeCursor: options.includeCursor === true,
     signal
   });
+  const capturedAt = new Date();
   assertObservationActive(state, signal);
   const prepared = await prepareObservationImage(capture.bytes, capture.width, capture.height, state.config);
   assertObservationActive(state, signal);
   const [cursor, accessibility] = await Promise.all([
     getCursor(signal).catch(() => ({ x: 0, y: 0 })),
-    accessibilityForTarget(window?.handle, capture.bounds, state, options.includeAccessibility !== false, signal)
+    accessibilityForTarget(
+      window?.handle,
+      capture.bounds,
+      state,
+      options.includeAccessibility !== false,
+      options.maxAccessibilityNodes || state.config.maxElements * 4,
+      options.accessibilityTimeoutMs || 20_000,
+      signal
+    )
   ]);
   assertObservationActive(state, signal);
   const config = {
@@ -122,14 +137,15 @@ export const createObservation = async (
     height: prepared.height,
     captureBounds: capture.bounds,
     accessibilityNodes: accessibility.nodes,
-    config
+    config,
+    analysisLevel: options.analysisLevel || 'standard',
+    signal
   });
   perception.stageMs.accessibility = Math.round((perception.stageMs.accessibility + accessibility.elapsed) * 10) / 10;
   assertObservationActive(state, signal);
   const id = randomUUID();
   const token = randomUUID();
-  const capturedAt = new Date();
-  const expiresAt = new Date(capturedAt.getTime() + state.config.observationTtlMs);
+  const expiresAt = new Date(Date.now() + state.config.observationTtlMs);
   const hash = hashImage(prepared.bytes);
   const previous = previousScreenshot(state, window?.handle, capture.bounds);
   const changeRatio = previous && previous.hash !== hash
@@ -138,7 +154,7 @@ export const createObservation = async (
   assertObservationActive(state, signal);
   const warnings = [...prepared.warnings, accessibility.warning, ...perception.warnings].filter((warning): warning is string => Boolean(warning));
   const overlayBytes = options.includeOverlay
-    ? await renderSetOfMark(prepared.bytes, perception.elements, prepared.width, prepared.height).catch(() => undefined)
+    ? await renderSetOfMark(prepared.bytes, perception.elements, prepared.width, prepared.height, 160, state.config.screenshotMaxBytes).catch(() => undefined)
     : undefined;
   assertObservationActive(state, signal);
   const screenshotResource = storeImageResource(state, `snapshot-${id}`, prepared.mimeType, prepared.bytes, 'snapshots');

@@ -22,6 +22,8 @@ type PerceptionInput = {
   captureBounds: Bounds;
   accessibilityNodes: AccessibilityNode[];
   config: ServerConfig;
+  analysisLevel: 'fast' | 'standard' | 'deep';
+  signal?: AbortSignal;
 };
 
 const timed = async <T>(run: () => Promise<T>) => {
@@ -38,10 +40,10 @@ export const analyzeScreenshot = async (input: PerceptionInput): Promise<Percept
   const deadlineAt = currentPerceptionDeadline();
   const [ocr, opencv] = await Promise.all([
     input.config.ocrEnabled
-      ? timed(() => detectTextElements(input.bytes, input.config.ocrLanguages, input.width, input.height, stageLimit, input.config.runtimeDir, input.config.ocrLangPath, deadlineAt))
+      ? timed(() => detectTextElements(input.bytes, input.config.ocrLanguages, input.width, input.height, stageLimit, input.config.runtimeDir, input.config.ocrLangPath, deadlineAt, input.signal))
       : Promise.resolve({ value: { elements: [], warning: undefined }, elapsed: 0 }),
     input.config.openCvEnabled
-      ? timed(() => detectVisualElements(input.bytes, stageLimit, deadlineAt))
+      ? timed(() => detectVisualElements(input.bytes, stageLimit, deadlineAt, input.analysisLevel === 'deep' ? 'deep' : 'standard', input.signal))
       : Promise.resolve({ value: { elements: [], warning: undefined }, elapsed: 0 })
   ]);
   const fusionStarted = performance.now();

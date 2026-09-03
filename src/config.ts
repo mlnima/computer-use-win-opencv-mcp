@@ -9,6 +9,7 @@ loadEnv({ path: path.join(packageRoot, '.env'), quiet: true });
 
 export type ServerConfig = {
   authToken: string;
+  allowExampleTokenOnLan: boolean;
   host: string;
   port: number;
   allowedOrigins: string[];
@@ -58,6 +59,7 @@ const pathOrUrl = (value?: string) => value
 
 export const loadConfig = (): ServerConfig => ({
   authToken: process.env.COMPUTER_USE_AUTH_TOKEN || 'change.me',
+  allowExampleTokenOnLan: boolValue('COMPUTER_USE_ALLOW_EXAMPLE_TOKEN_ON_LAN', false),
   host: process.env.COMPUTER_USE_HOST || '127.0.0.1',
   port: numberValue('COMPUTER_USE_PORT', 7331),
   allowedOrigins: (process.env.COMPUTER_USE_ALLOWED_ORIGINS || '').split(',').map((value) => value.trim()).filter(Boolean),
@@ -79,7 +81,7 @@ export const loadConfig = (): ServerConfig => ({
   visionApiKey: process.env.COMPUTER_USE_VISION_API_KEY || undefined,
   visionModel: process.env.COMPUTER_USE_VISION_MODEL || undefined,
   visionTimeoutMs: numberValue('COMPUTER_USE_VISION_TIMEOUT_MS', 20_000),
-  visualChangeThreshold: ratioValue('COMPUTER_USE_VISUAL_CHANGE_THRESHOLD', 0.18),
+  visualChangeThreshold: ratioValue('COMPUTER_USE_VISUAL_CHANGE_THRESHOLD', 0.1),
   maxTimelineMs: numberValue('COMPUTER_USE_MAX_TIMELINE_MS', 15_000),
   maxTimelineEvents: numberValue('COMPUTER_USE_MAX_TIMELINE_EVENTS', 500),
   maxHttpSessions: numberValue('COMPUTER_USE_MAX_HTTP_SESSIONS', 32),

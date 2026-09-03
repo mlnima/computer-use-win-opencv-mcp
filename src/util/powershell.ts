@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { childEnvironment } from './childEnvironment';
 
 const executable = 'powershell.exe';
 
@@ -17,7 +18,7 @@ export const runPowerShell = async (script: string, timeout = 15_000, signal?: A
     execFile(
       executable,
       ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script],
-      { encoding: 'utf8', windowsHide: true, timeout, maxBuffer: 16 * 1024 * 1024, signal },
+      { encoding: 'utf8', windowsHide: true, timeout, maxBuffer: 16 * 1024 * 1024, signal, env: childEnvironment() },
       (error, stdout, stderr) => error
         ? reject(signal?.aborted ? abortReason(signal) : new Error(stderr.trim() || error.message))
         : resolve(stdout.trim())

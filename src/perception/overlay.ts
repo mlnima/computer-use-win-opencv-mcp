@@ -33,9 +33,19 @@ export const renderSetOfMark = async (
   elements: ScreenElement[],
   width: number,
   height: number,
-  maxMarkers = 160
+  maxMarkers = 160,
+  maxBytes?: number
 ) => {
   const visible = elements.filter((element) => !element.offscreen).slice(0, maxMarkers);
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">${visible.map((element) => marker(element, width, height)).join('')}</svg>`;
-  return sharp(bytes).composite([{ input: Buffer.from(svg), blend: 'over' }]).png().toBuffer();
+  let output = await sharp(bytes).composite([{ input: Buffer.from(svg), blend: 'over' }]).png({ compressionLevel: 9, adaptiveFiltering: true }).toBuffer();
+  for (let attempt = 0; maxBytes && output.length > maxBytes && attempt < 10; attempt += 1) {
+    const metadata = await sharp(output).metadata();
+    const scale = Math.min(0.9, Math.sqrt(maxBytes / output.length) * 0.92);
+    const resizedWidth = Math.max(1, Math.floor((metadata.width || width) * scale));
+    const resizedHeight = Math.max(1, Math.floor((metadata.height || height) * scale));
+    output = await sharp(output).resize(resizedWidth, resizedHeight, { fit: 'fill' }).png({ compressionLevel: 9, adaptiveFiltering: true }).toBuffer();
+  }
+  if (maxBytes && output.length > maxBytes) throw new Error('Set-of-Mark image cannot fit the configured screenshot byte limit.');
+  return output;
 };

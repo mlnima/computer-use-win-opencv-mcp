@@ -26,7 +26,7 @@ It is a standalone repository. It does not import packages, configuration, sourc
 | Optional vision model | Ambiguous icons, canvas content, 3D objects, and game scenes | A ranking of existing element IDs, never unrestricted coordinates |
 | Native Windows input | Physical mouse paths, relative camera movement, scan codes, held input, and timed sequences | Verified `SendInput` actions with cursor readback |
 
-The calling agent normally receives a compact list of useful elements and resource URIs. Full screenshots, Set-of-Mark overlays, scene maps, crops, and traces remain available as TTL-bound MCP resources instead of being duplicated into the model context on every turn.
+The calling agent normally receives a compact, priority/source/spatially diverse list of useful elements and resource URIs. Standard observations keep image data out of the response by default. Deep observations include a Set-of-Mark image by default so a vision-capable caller can reason over difficult scenes without a second tool call; callers can set `inlineImage: false` when they only need structured local detections.
 
 ```mermaid
 flowchart LR
@@ -66,7 +66,7 @@ npm run build
 
 The server resolves `.env` beside `package.json`, so an MCP host can launch the absolute `dist\index.js` path from any working directory. Relative runtime and OCR language paths are also resolved from the repository root.
 
-The example token is intentionally `change.me` for first testing and binds only to loopback. Non-loopback HTTP refuses to start with that placeholder or a token shorter than 24 characters.
+The example token is intentionally `change.me` for first testing and binds only to loopback. Non-loopback HTTP refuses to start with that placeholder or a token shorter than 24 characters unless the explicit test-only `COMPUTER_USE_ALLOW_EXAMPLE_TOKEN_ON_LAN=true` override is set.
 
 ## Run with stdio
 
@@ -134,7 +134,7 @@ A common `mcpServers` JSON configuration for a Streamable HTTP client is:
 }
 ```
 
-For LAN use, replace `127.0.0.1` with the Windows computer's IP address and replace `change.me` with the same strong token configured on the server. Client configuration field names can vary; clients that label this transport `http` should use that label while keeping the same MCP URL and authorization header.
+For LAN use, replace `127.0.0.1` with the Windows computer's IP address and replace `change.me` with the same strong token configured on the server. Client configuration field names can vary; clients that label this transport `http` should use that label while keeping the same MCP URL and authorization header. For isolated short-lived testing with an already configured `change.me` client, also set `COMPUTER_USE_ALLOW_EXAMPLE_TOKEN_ON_LAN=true` on the server. That override is intentionally off by default and emits a prominent startup warning.
 
 The authenticated health endpoint is `GET /health`. The server implements MCP Streamable HTTP session initialization, POST requests, SSE streaming through GET, session deletion, bounded concurrent initialization, and idle-session cleanup. Each network session receives its own MCP transport while all sessions coordinate through one hardware-input queue and one mandatory exclusive lease for desktop mutations.
 
@@ -153,6 +153,7 @@ Command-line `--host` and `--port` override their environment values. Keep crede
 | Variable | Example | Purpose |
 | --- | --- | --- |
 | `COMPUTER_USE_AUTH_TOKEN` | `change.me` | Bearer token required by HTTP |
+| `COMPUTER_USE_ALLOW_EXAMPLE_TOKEN_ON_LAN` | `false` | Explicitly allow a weak example token on non-loopback HTTP for isolated testing |
 | `COMPUTER_USE_HOST` | `127.0.0.1` | HTTP bind address; use `0.0.0.0` only with a strong token on a trusted network |
 | `COMPUTER_USE_PORT` | `7331` | Streamable HTTP port |
 | `COMPUTER_USE_ALLOWED_ORIGINS` | empty | Comma-separated browser origins allowed to call `/mcp` |
@@ -172,7 +173,7 @@ Command-line `--host` and `--port` override their environment values. Keep crede
 | `COMPUTER_USE_VISION_API_KEY` | empty | Optional vision endpoint bearer key |
 | `COMPUTER_USE_VISION_MODEL` | empty | Optional model identifier |
 | `COMPUTER_USE_VISION_TIMEOUT_MS` | `20000` | Vision request timeout |
-| `COMPUTER_USE_VISUAL_CHANGE_THRESHOLD` | `0.18` | Maximum target-local grayscale difference accepted at pointer commit |
+| `COMPUTER_USE_VISUAL_CHANGE_THRESHOLD` | `0.1` | Maximum target-local color-and-edge difference accepted at pointer commit |
 | `COMPUTER_USE_MAX_TIMELINE_MS` | `15000` | Maximum timed 3D/game input sequence duration |
 | `COMPUTER_USE_MAX_TIMELINE_EVENTS` | `500` | Maximum events in one timed input sequence |
 | `COMPUTER_USE_MAX_HTTP_SESSIONS` | `32` | Maximum simultaneous Streamable HTTP sessions |
@@ -188,7 +189,7 @@ The local pipeline works without an AI endpoint. When configured, `computer_loca
 {"ids":["e14","e9"]}
 ```
 
-Only IDs supplied by the local grounding pipeline are accepted. Invented IDs and coordinate responses are discarded. When detector evidence is sparse, the server adds a deterministic 6×4 spatial proposal grid to the model's candidate set. A model-selected grid cell is deliberately blocked from direct input unless the caller explicitly accepts its center with `allowRaw`; the safer flow is to observe that cell as a higher-resolution region and locate again. No screenshot is sent to a model unless the caller explicitly requests vision ranking.
+Only IDs supplied by the local grounding pipeline are accepted. Invented IDs and coordinate responses are discarded. Every locate response explicitly reports whether server-side vision was requested, configured, and used. When detector evidence is sparse, the server adds a deterministic 6×4 spatial proposal grid to the model's candidate set. A model-selected grid cell is deliberately blocked from direct input unless the caller explicitly accepts its center with `allowRaw`; the safer flow is to observe that cell as a higher-resolution region and locate again. No screenshot is sent to the configured server-side model unless the caller explicitly requests vision ranking. Independently, absent, close-scored, low-confidence, or OpenCV-only locate results include a bounded inline Set-of-Mark image for review by a vision-capable calling agent; this never invokes the server-side model.
 
 ## MCP tools
 
@@ -196,8 +197,8 @@ Only IDs supplied by the local grounding pipeline are accepted. Invented IDs and
 
 | Tool | Purpose |
 | --- | --- |
-| `computer_observe` | Capture foreground, window, region, desktop, or a prior element as a refined region in `fast`, `standard`, or `deep` mode |
-| `computer_locate` | Rank elements by text, role, value, spatial language, confidence, and optional vision |
+| `computer_observe` | Capture foreground, window, region, desktop, or a prior element as a refined region in `fast`, `standard`, or `deep` mode; deep mode returns inline Set-of-Mark evidence by default |
+| `computer_locate` | Rank elements by text, role, value, spatial language, confidence, and optional server vision; uncertain local results return inline Set-of-Mark evidence |
 | `computer_inspect` | Return one element's evidence and an optional crop resource |
 | `computer_overlay` | Build a Set-of-Mark overlay for all or selected element IDs |
 | `computer_wait` | Wait for visual change or for a grounded query to appear or disappear |
@@ -239,7 +240,7 @@ All tools that mutate the visible desktop require an input lease. Call `computer
 1. Acquire an input lease with `computer_control`.
 2. Call `computer_observe` for the target window.
 3. Call `computer_locate` with a semantic query such as `Save button in the bottom right`.
-4. If candidates are close or the scene is a canvas, inspect an overlay or request vision ranking.
+4. If candidates are close or the scene is a canvas, inspect the automatically returned Set-of-Mark image or request configured server-side vision ranking.
 5. Call `computer_pointer_prepare` with the lease ID, observation ID, observation token, and selected element ID.
 6. Inspect the hover screenshot when correctness matters.
 7. Call `computer_pointer_commit` with the same lease ID and the one-use prepare ID.
@@ -288,9 +289,11 @@ The server uses per-monitor-DPI-aware physical screen coordinates and DWM extend
 - OpenCV matrices are released after every frame.
 - Screenshots are normalized to configured byte and dimension limits.
 - Full scene maps and images are stored as TTL-bound resources.
-- `computer_observe` returns a configurable top slice instead of forcing hundreds of elements into the model context.
-- `fast` mode skips OCR and OpenCV; `standard` enables local fusion; `deep` also creates an overlay.
-- Vision is opt-in per locate call and sees only the target image plus a bounded candidate set.
+- Inline screenshots and Set-of-Mark images obey the configured screenshot byte limit.
+- `computer_observe` returns a configurable priority/source/spatially diverse subset instead of forcing hundreds of elements into the model context.
+- `fast` mode skips OCR and OpenCV; `standard` enables local fusion; `deep` also returns an inline Set-of-Mark image unless disabled.
+- Server-side vision is opt-in per locate call and sees only the target image plus a bounded candidate set.
+- Automatic locate images appear only when matches are absent, ambiguous, weak, or OpenCV-only, keeping routine responses compact.
 
 This reduces caller context and expensive multimodal inference for ordinary desktop UI. It does not make all computation disappear: local OCR/OpenCV consume CPU, and optional vision calls add their own latency and model cost.
 
@@ -298,7 +301,7 @@ This reduces caller context and expensive multimodal inference for ordinary desk
 
 This server can control the keyboard, pointer, processes, terminal, clipboard, and files of the Windows account that runs it. Treat access as equivalent to interactive access to that account.
 
-- Non-loopback HTTP refuses `change.me` and tokens shorter than 24 characters.
+- Non-loopback HTTP refuses `change.me` and tokens shorter than 24 characters unless the explicit test-only override is enabled.
 - Prefer loopback, a trusted private LAN, a VPN, or an authenticated TLS reverse proxy.
 - Bearer tokens sent over plain HTTP can be intercepted by anyone able to observe that network path.
 - Browser requests are rejected unless their Origin is local or appears in `COMPUTER_USE_ALLOWED_ORIGINS`.

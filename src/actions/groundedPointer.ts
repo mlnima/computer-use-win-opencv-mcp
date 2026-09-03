@@ -4,16 +4,15 @@ import { probeNative } from '../input/nativeActions';
 import { clickPointerNative, movePointerNative, pointerResultNative, scrollPointerNative } from '../input/pointer';
 import { runInputTransaction } from '../input/queue';
 import type { Bounds } from '../types/geometry';
-import { pointInBounds } from '../types/geometry';
 import type { MouseButton, PreparedPointer } from '../types/input';
 import type { Observation } from '../types/perception';
 import type { RuntimeState } from '../types/runtime';
 import { createObservation } from '../observation/create';
 import { newId, recordTrace } from '../runtime/state';
-import { getAccessibilityElement } from '../windows/accessibility';
-import { focusWindow, getWindow, windowFromPoint } from '../windows/windows';
+import { focusWindow, getWindow } from '../windows/windows';
 import { compactObservation, requireObservation, targetPoint } from './observations';
 import { captureObservationSample, storedObservationSample, targetVisualRegion, verifyVisualSamples } from './visualVerification';
+import { verifyPointerElement, verifyPointerHit, verifyPointerWindow } from './pointerVerification';
 export type PointerOwner = { clientId: string; leaseId: string; signal?: AbortSignal };
 export type PreparePointerOptions = {
   observationId: string;
@@ -35,13 +34,6 @@ export type CommitPointerOptions = {
 };
 const sameBounds = (first: Bounds, second: Bounds) =>
   first.left === second.left && first.top === second.top && first.right === second.right && first.bottom === second.bottom;
-const boundsNear = (first: Bounds, second: Bounds, tolerance = 3) =>
-  Math.max(
-    Math.abs(first.left - second.left),
-    Math.abs(first.top - second.top),
-    Math.abs(first.right - second.right),
-    Math.abs(first.bottom - second.bottom)
-  ) <= tolerance;
 const toScreenBounds = (observation: Observation, bounds: Bounds): Bounds => {
   const width = observation.bounds.right - observation.bounds.left;
   const height = observation.bounds.bottom - observation.bounds.top;
@@ -60,37 +52,11 @@ const actionButton = (action: CommitPointerOptions['action']): MouseButton => {
   return 'left';
 };
 const actionCount = (action: CommitPointerOptions['action']) => action === 'doubleClick' ? 2 : action === 'tripleClick' ? 3 : 1;
-const verifyWindowGeometry = async (prepared: PreparedPointer, signal?: AbortSignal) => {
-  if (!prepared.windowHandle || !prepared.windowBounds) return;
-  const current = await getWindow(prepared.windowHandle, signal);
-  if (!current || !sameBounds(current.bounds, prepared.windowBounds)) throw new Error('Target window moved, resized, or closed after pointer preparation.');
-};
-
-const verifyElementIdentity = async (prepared: PreparedPointer, signal?: AbortSignal) => {
-  if (!prepared.windowHandle || !prepared.uiaRuntimeId || !prepared.elementScreenBounds) return;
-  const current = await getAccessibilityElement(prepared.windowHandle, prepared.uiaRuntimeId, signal);
-  if (!current || !current.enabled || current.offscreen) throw new Error('Prepared UI Automation element is stale, disabled, or offscreen.');
-  if (!boundsNear(current.bounds, prepared.elementScreenBounds) || !pointInBounds(prepared.target, current.bounds)) {
-    throw new Error('Prepared UI Automation element moved or changed geometry.');
-  }
-  if (prepared.uiaClickablePoint && (!current.clickablePoint || Math.abs(current.clickablePoint.x - prepared.target.x) > 3 || Math.abs(current.clickablePoint.y - prepared.target.y) > 3)) {
-    throw new Error('Prepared UI Automation clickable point changed.');
-  }
-};
-
 const verifyVisualState = async (state: RuntimeState, prepared: PreparedPointer, observation: Observation, execution: InputExecution) => {
   if (prepared.verification !== 'visual') return undefined;
   if (!prepared.visualBounds || !prepared.visualSample) throw new Error('Prepared local visual signature is unavailable.');
   const current = await captureObservationSample(state, observation, prepared.visualBounds, execution.signal);
   return verifyVisualSamples(state, prepared.visualSample, current, 'Target-local visual state changed after preparation');
-};
-
-const verifyHitTarget = async (prepared: Pick<PreparedPointer, 'windowHandle' | 'target'>, signal?: AbortSignal) => {
-  const hit = await windowFromPoint(prepared.target, signal);
-  if (!prepared.windowHandle) return hit;
-  if (!hit) throw new Error('The target window could not be verified at the prepared point.');
-  if (hit.handle !== prepared.windowHandle) throw new Error(`Prepared point is occluded by ${hit.title || hit.handle}.`);
-  return hit;
 };
 
 const assertOwner = (prepared: PreparedPointer, owner: PointerOwner) => {
@@ -124,7 +90,7 @@ export const prepareGroundedPointer = async (
   const elementScreenBounds = target.element ? toScreenBounds(observation, target.element.bounds) : undefined;
   const region = targetVisualRegion(target.screen, elementScreenBounds);
   const verification = options.verification || 'visual';
-  const originalVisualSample = verification === 'visual' && !target.element?.uiaRuntimeId
+  const originalVisualSample = verification === 'visual'
     ? await storedObservationSample(state, observation, region, owner.signal)
     : undefined;
   const moved = await runInputTransaction(state, async ({ guard, execution }) => {
@@ -138,7 +104,7 @@ export const prepareGroundedPointer = async (
       ? verifyVisualSamples(state, originalVisualSample, await captureObservationSample(state, observation, region, execution.signal), 'Observed target changed before pointer preparation')
       : undefined;
     await movePointerNative(state, { ...target.screen, durationMs: options.durationMs ?? 180 }, execution);
-    const hit = await verifyHitTarget({ windowHandle: current?.handle, target: target.screen }, execution.signal);
+    const hit = await verifyPointerHit({ windowHandle: current?.handle, target: target.screen }, execution.signal);
     if (!hit) throw new Error('No top-level window exists at the prepared point.');
     let visualSample: Buffer | undefined;
     const imageHash = state.screenshots.get(observation.screenshotId)?.hash || '';
@@ -170,6 +136,9 @@ export const prepareGroundedPointer = async (
     elementScreenBounds,
     uiaRuntimeId: target.element?.uiaRuntimeId,
     uiaClickablePoint: target.element?.uiaClickablePoint,
+    uiaRole: target.element?.uiaRole,
+    uiaName: target.element?.uiaName,
+    uiaValue: target.element?.uiaValue,
     visualBounds: region,
     visualSample: moved.visualSample
   };
@@ -222,15 +191,19 @@ export const consumeGroundedPointer = async <T>(
     if (Math.abs(probe.x - prepared.target.x) > 2 || Math.abs(probe.y - prepared.target.y) > 2) {
       throw new Error('Pointer moved after preparation. Prepare again.');
     }
-    await verifyWindowGeometry(prepared, execution.signal);
+    await verifyPointerWindow(prepared, execution.signal);
     const visualDifference = await verifyVisualState(state, prepared, original, execution);
-    await verifyElementIdentity(prepared, execution.signal);
+    await verifyPointerElement(prepared, execution.signal);
     guard();
     const finalProbe = await probeNative(state, execution);
     if (Math.abs(finalProbe.x - prepared.target.x) > 2 || Math.abs(finalProbe.y - prepared.target.y) > 2) {
       throw new Error('Pointer moved during commit verification. Prepare again.');
     }
-    const hitWindow = await verifyHitTarget(prepared, execution.signal);
+    const hitWindow = await verifyPointerHit(prepared, execution.signal);
+    const hitProbe = await probeNative(state, execution);
+    if (Math.abs(hitProbe.x - prepared.target.x) > 2 || Math.abs(hitProbe.y - prepared.target.y) > 2) {
+      throw new Error('Pointer moved during final hit verification. Prepare again.');
+    }
     guard();
     if (Date.parse(prepared.expiresAt) <= Date.now()) throw new Error('Pointer preparation expired during commit verification.');
     const result = await operation(prepared, execution);

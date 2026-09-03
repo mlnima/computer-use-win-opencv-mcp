@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { childEnvironment } from '../util/childEnvironment';
 import { runPowerShell, runPowerShellJson, psLiteral } from '../util/powershell';
 
 export type ProcessRecord = {
@@ -71,7 +72,7 @@ export const startProcess = async (file: string, args: string[], cwd?: string, w
   const cancelStartup = () => startup.abort(startupSignal ? abortReason(startupSignal) : undefined);
   startupSignal?.addEventListener('abort', cancelStartup, { once: true });
   let child: ReturnType<typeof spawn>;
-  try { child = spawn(file, args, { cwd, detached: !wait, stdio: 'ignore', windowsHide: false, signal: startup.signal }); }
+  try { child = spawn(file, args, { cwd, detached: !wait, stdio: 'ignore', windowsHide: false, signal: startup.signal, env: childEnvironment() }); }
   catch (error) { startupSignal?.removeEventListener('abort', cancelStartup); throw error; }
   try {
     await new Promise<void>((resolve, reject) => {

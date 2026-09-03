@@ -58,7 +58,8 @@ export const rankWithVision = async (
     value: candidate.value,
     bounds: candidate.bounds,
     sources: candidate.sources,
-    confidence: candidate.confidence
+    confidence: candidate.confidence,
+    evidence: candidate.evidence
   }));
   try {
     const response = await fetch(config.visionApiUrl, {

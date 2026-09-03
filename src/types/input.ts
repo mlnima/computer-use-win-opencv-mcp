@@ -27,6 +27,9 @@ export type PreparedPointer = {
   elementScreenBounds?: Bounds;
   uiaRuntimeId?: string;
   uiaClickablePoint?: boolean;
+  uiaRole?: string;
+  uiaName?: string;
+  uiaValue?: string;
   visualBounds?: Bounds;
   visualSample?: Buffer;
 };
@@ -41,6 +44,9 @@ export type DragState = {
   destinationWindowHandle?: string;
   destinationWindowBounds?: Bounds;
   destinationUiaRuntimeId?: string;
+  destinationUiaRole?: string;
+  destinationUiaName?: string;
+  destinationUiaValue?: string;
   destinationElementBounds?: Bounds;
   destinationVisualBounds?: Bounds;
   destinationVisualSample?: Buffer;

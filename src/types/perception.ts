@@ -17,8 +17,12 @@ export type ScreenElement = {
   offscreen: boolean;
   actions: ElementAction[];
   sources: ElementSource[];
+  evidence?: string[];
   uiaRuntimeId?: string;
   uiaClickablePoint?: boolean;
+  uiaRole?: string;
+  uiaName?: string;
+  uiaValue?: string;
   parentId?: string;
   children?: string[];
 };

@@ -71,7 +71,7 @@ export const createObservationOverlay = async (
   const { observation, screenshot } = getObservationData(state, observationId);
   const allowed = elementIds ? new Set(elementIds) : undefined;
   const elements = allowed ? observation.elements.filter((element) => allowed.has(element.id)) : observation.elements;
-  const bytes = await renderSetOfMark(screenshot.bytes, elements, screenshot.width, screenshot.height);
+  const bytes = await renderSetOfMark(screenshot.bytes, elements, screenshot.width, screenshot.height, 160, state.config.screenshotMaxBytes);
   assertRuntimeActive(state);
   return storeImageResource(state, `overlay-${observationId}.png`, 'image/png', bytes, 'overlays');
 };

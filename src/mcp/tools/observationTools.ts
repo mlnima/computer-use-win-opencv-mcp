@@ -6,6 +6,7 @@ import { compactObservation, imageToScreenBounds, requireElement, requireObserva
 import { createObservation } from '../../observation/create';
 import { withPerceptionDeadline } from '../../perception/deadline';
 import { createObservationOverlay, locateObservation } from '../../observation/locate';
+import { locateEvidenceReasons, selectDiverseElements, selectEvidenceElements } from '../../observation/presentation';
 import { storeImageResource } from '../../observation/resources';
 import { waitForObservation } from '../../observation/wait';
 import type { Observation } from '../../types/perception';
@@ -31,7 +32,7 @@ const observeSchema = z.object({
   mode: z.enum(['fast', 'standard', 'deep']).default('standard'),
   includeCursor: z.boolean().default(false),
   includeOverlay: z.boolean().optional(),
-  inlineImage: z.boolean().default(false),
+  inlineImage: z.boolean().optional(),
   elementLimit: z.number().int().min(0).max(500).default(80),
   regionObservationId: z.string().optional(),
   regionToken: z.string().optional(),
@@ -72,7 +73,7 @@ const waitSchema = z.object({
   intervalMs: z.number().int().min(100).max(5000).default(500)
 });
 
-const observationValue = (observation: Awaited<ReturnType<typeof createObservation>>, limit: number) => ({
+const observationValue = (observation: Awaited<ReturnType<typeof createObservation>>, elements: Observation['elements']) => ({
   ...compactObservation(observation),
   screenshotUri: observation.screenshotUri,
   sceneUri: observation.sceneUri,
@@ -80,16 +81,91 @@ const observationValue = (observation: Awaited<ReturnType<typeof createObservati
   captureBackend: observation.captureBackend,
   changeRatio: observation.changeRatio,
   stageMs: observation.stageMs,
-  elements: observation.elements.slice(0, limit),
-  returnedElementCount: Math.min(limit, observation.elements.length)
+  elements,
+  returnedElementCount: elements.length,
+  elementSelection: 'priority_source_spatial'
 });
 
-const observeResult = (state: RuntimeState, observation: Awaited<ReturnType<typeof createObservation>>, limit: number, inline: boolean): CallToolResult => {
-  const value = observationValue(observation, limit);
+const observeResult = async (
+  state: RuntimeState,
+  observation: Awaited<ReturnType<typeof createObservation>>,
+  limit: number,
+  inline: boolean,
+  overlay: boolean
+): Promise<CallToolResult> => {
+  const elements = selectDiverseElements(observation.elements, limit, observation.width, observation.height);
   const screenshot = state.screenshots.get(observation.screenshotId);
+  let overlayResource: Awaited<ReturnType<typeof createObservationOverlay>> | undefined;
+  let warning: string | undefined;
+  if (inline && overlay) {
+    try {
+      overlayResource = await createObservationOverlay(state, observation.id, elements.map((element) => element.id));
+      observation.overlayUri = overlayResource.uri;
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') throw error;
+      warning = `Inline Set-of-Mark rendering failed: ${error instanceof Error ? error.message : String(error)}`;
+    }
+  }
+  const image = overlayResource?.bytes ? overlayResource : screenshot;
+  const value = {
+    ...observationValue(observation, elements),
+    visualEvidence: {
+      included: Boolean(inline && image),
+      kind: overlayResource ? 'set_of_mark' : inline && screenshot ? 'screenshot' : 'none',
+      resource: overlayResource ? resourceReference(overlayResource) : undefined,
+      warning
+    }
+  };
   const result = toolResult(value);
-  if (inline && screenshot) result.content.push({ type: 'image', data: screenshot.bytes.toString('base64'), mimeType: screenshot.mimeType });
+  if (inline && image?.bytes) result.content.push({ type: 'image', data: image.bytes.toString('base64'), mimeType: image.mimeType });
   return result;
+};
+
+const visionStatus = (requested: boolean, configured: boolean, used: boolean) =>
+  used ? 'used' : !requested ? 'not_requested' : !configured ? 'not_configured' : 'requested_but_not_used';
+
+const locateResult = async (state: RuntimeState, observationId: string, query: string, limit: number, useVision: boolean, signal?: AbortSignal) => {
+  try {
+    return await withPerceptionDeadline(Date.now() + state.config.visionTimeoutMs + 10_000, async () => {
+      const located = await locateObservation(state, observationId, query, { limit, useVision });
+      const configured = Boolean(state.config.visionApiUrl && state.config.visionModel);
+      const reasons = locateEvidenceReasons(located.matches);
+      const observation = requireObservation(state, observationId);
+      let resource: Awaited<ReturnType<typeof createObservationOverlay>> | undefined;
+      let warning: string | undefined;
+      if (reasons.length) {
+        const elements = selectEvidenceElements(observation.elements, located.matches, 64, observation.width, observation.height);
+        try {
+          resource = await createObservationOverlay(state, observationId, elements.map((element) => element.id));
+        } catch (error) {
+          if (error instanceof Error && error.name === 'AbortError') throw error;
+          warning = `Automatic Set-of-Mark rendering failed: ${error instanceof Error ? error.message : String(error)}`;
+        }
+      }
+      const value = {
+        ...located,
+        serverVision: {
+          requested: useVision,
+          configured,
+          used: located.usedVision,
+          status: visionStatus(useVision, configured, located.usedVision),
+          warning: located.warning
+        },
+        visualEvidence: {
+          included: Boolean(resource?.bytes),
+          kind: resource ? 'set_of_mark' : 'none',
+          reasons,
+          resource: resource ? resourceReference(resource) : undefined,
+          warning
+        }
+      };
+      const result = toolResult(value);
+      if (resource?.bytes) result.content.push({ type: 'image', data: resource.bytes.toString('base64'), mimeType: resource.mimeType });
+      return result;
+    }, signal);
+  } catch (error) {
+    return toolError(error);
+  }
 };
 
 const cropElement = async (state: RuntimeState, observation: Observation, elementId: string, padding: number, signal?: AbortSignal) => {
@@ -110,11 +186,17 @@ const cropElement = async (state: RuntimeState, observation: Observation, elemen
 
 const registerObserve = (server: McpServer, state: RuntimeState) => server.registerTool('computer_observe', {
   title: 'Observe Windows screen',
-  description: 'Capture a target and fuse UI Automation, OCR, and OpenCV evidence into snapshot-scoped elements.',
+  description: 'Capture a target and return a priority/source/spatially diverse set of snapshot-scoped UI Automation, OCR, and OpenCV elements. Deep mode includes inline Set-of-Mark evidence unless inlineImage is false.',
   inputSchema: observeSchema,
   annotations: { readOnlyHint: true }
 }, async ({ target, windowHandle, bounds, mode, includeCursor, includeOverlay, inlineImage, elementLimit, regionObservationId, regionToken, regionElementId, regionPadding }, extra) => {
   try {
+    const inline = inlineImage ?? mode === 'deep';
+    const overlay = includeOverlay ?? mode === 'deep';
+    const profile = mode === 'fast'
+      ? { deadlineMs: 10_000, maxAccessibilityNodes: 400, accessibilityTimeoutMs: 5_000 }
+      : mode === 'standard' ? { deadlineMs: 60_000, maxAccessibilityNodes: 1_200, accessibilityTimeoutMs: 12_000 }
+        : { deadlineMs: 120_000, maxAccessibilityNodes: state.config.maxElements * 4, accessibilityTimeoutMs: 20_000 };
     const source = regionElementId
       ? requireObservation(state, regionObservationId || '', regionToken || '')
       : undefined;
@@ -129,17 +211,22 @@ const registerObserve = (server: McpServer, state: RuntimeState) => server.regis
       right: Math.min(source.width, sourceElement.bounds.right + regionPadding),
       bottom: Math.min(source.height, sourceElement.bounds.bottom + regionPadding)
     }) : bounds;
-    const observation = await withPerceptionDeadline(Date.now() + 120_000, () => createObservation(state, {
-      target: source ? 'region' : target,
-      windowHandle: source?.window?.handle || windowHandle,
-      bounds: regionBounds,
-      includeCursor,
-      includeAccessibility: true,
-      includeOcr: mode !== 'fast',
-      includeOpenCv: mode !== 'fast',
-      includeOverlay: includeOverlay ?? mode === 'deep'
-    }), extra.signal);
-    return observeResult(state, observation, elementLimit, inlineImage);
+    return await withPerceptionDeadline(Date.now() + profile.deadlineMs, async () => {
+      const observation = await createObservation(state, {
+        target: source ? 'region' : target,
+        windowHandle: source?.window?.handle || windowHandle,
+        bounds: regionBounds,
+        analysisLevel: mode,
+        maxAccessibilityNodes: profile.maxAccessibilityNodes,
+        accessibilityTimeoutMs: profile.accessibilityTimeoutMs,
+        includeCursor,
+        includeAccessibility: true,
+        includeOcr: mode !== 'fast',
+        includeOpenCv: mode !== 'fast',
+        includeOverlay: overlay && !inline
+      });
+      return await observeResult(state, observation, elementLimit, inline, overlay);
+    }, extra.signal);
   } catch (error) {
     return toolError(error);
   }
@@ -147,10 +234,10 @@ const registerObserve = (server: McpServer, state: RuntimeState) => server.regis
 
 const registerLocate = (server: McpServer, state: RuntimeState) => server.registerTool('computer_locate', {
   title: 'Locate screen elements',
-  description: 'Rank grounded elements by text, role, position, and optionally a configured vision model.',
+  description: 'Rank grounded elements by text, role, position, and optional configured server vision. Reports requested/configured/used vision state and automatically includes inline Set-of-Mark evidence for absent, ambiguous, weak, or OpenCV-only matches.',
   inputSchema: locateSchema,
   annotations: { readOnlyHint: true }
-}, ({ observationId, query, limit, useVision }, extra) => runTool(() => withPerceptionDeadline(Date.now() + state.config.visionTimeoutMs + 10_000, () => locateObservation(state, observationId, query, { limit, useVision }), extra.signal)));
+}, ({ observationId, query, limit, useVision }, extra) => locateResult(state, observationId, query, limit, useVision, extra.signal));
 
 const registerInspect = (server: McpServer, state: RuntimeState) => server.registerTool('computer_inspect', {
   title: 'Inspect grounded element',
