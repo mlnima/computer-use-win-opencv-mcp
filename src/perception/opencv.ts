@@ -15,7 +15,7 @@ type Pending = {
   abort?: () => void;
 };
 type CvResult = { elements: ScreenElement[]; warning?: string };
-export type OpenCvAnalysisLevel = 'standard' | 'deep';
+export type OpenCvAnalysisLevel = 'fast' | 'standard' | 'deep';
 
 const require = createRequire(import.meta.url);
 const pending = new Map<string, Pending>();
@@ -141,7 +141,7 @@ const analyze = (
 ) => new Promise<ScreenElement[]>((resolve, reject) => {
   try {
     if (signal?.aborted) throw abortError(signal);
-    const limit = analysisLevel === 'deep' ? 45_000 : 20_000;
+    const limit = analysisLevel === 'deep' ? 45_000 : analysisLevel === 'fast' ? 10_000 : 20_000;
     const remaining = deadlineAt === undefined ? limit : Math.min(limit, deadlineAt - Date.now());
     if (remaining <= 0) throw new Error('OpenCV analysis deadline elapsed.');
     const active = startChild();

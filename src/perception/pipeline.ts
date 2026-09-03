@@ -36,14 +36,14 @@ export const analyzeScreenshot = async (input: PerceptionInput): Promise<Percept
   const accessibilityStarted = performance.now();
   const accessibility = accessibilityElements(input.accessibilityNodes, input.captureBounds, input.width, input.height);
   const accessibilityMs = Math.round((performance.now() - accessibilityStarted) * 10) / 10;
-  const stageLimit = Math.max(20, input.config.maxElements * 2);
+  const stageLimit = Math.max(20, input.config.maxElements * (input.analysisLevel === 'fast' ? 1 : 2));
   const deadlineAt = currentPerceptionDeadline();
   const [ocr, opencv] = await Promise.all([
     input.config.ocrEnabled
       ? timed(() => detectTextElements(input.bytes, input.config.ocrLanguages, input.width, input.height, stageLimit, input.config.runtimeDir, input.config.ocrLangPath, deadlineAt, input.signal))
       : Promise.resolve({ value: { elements: [], warning: undefined }, elapsed: 0 }),
     input.config.openCvEnabled
-      ? timed(() => detectVisualElements(input.bytes, stageLimit, deadlineAt, input.analysisLevel === 'deep' ? 'deep' : 'standard', input.signal))
+      ? timed(() => detectVisualElements(input.bytes, stageLimit, deadlineAt, input.analysisLevel, input.signal))
       : Promise.resolve({ value: { elements: [], warning: undefined }, elapsed: 0 })
   ]);
   const fusionStarted = performance.now();

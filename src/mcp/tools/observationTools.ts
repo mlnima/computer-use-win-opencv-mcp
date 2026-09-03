@@ -194,8 +194,8 @@ const registerObserve = (server: McpServer, state: RuntimeState) => server.regis
     const inline = inlineImage ?? mode === 'deep';
     const overlay = includeOverlay ?? mode === 'deep';
     const profile = mode === 'fast'
-      ? { deadlineMs: 10_000, maxAccessibilityNodes: 400, accessibilityTimeoutMs: 5_000 }
-      : mode === 'standard' ? { deadlineMs: 60_000, maxAccessibilityNodes: 1_200, accessibilityTimeoutMs: 12_000 }
+      ? { deadlineMs: 30_000, maxAccessibilityNodes: 400, accessibilityTimeoutMs: 5_000 }
+      : mode === 'standard' ? { deadlineMs: 60_000, maxAccessibilityNodes: 1_200, accessibilityTimeoutMs: 15_000 }
         : { deadlineMs: 120_000, maxAccessibilityNodes: state.config.maxElements * 4, accessibilityTimeoutMs: 20_000 };
     const source = regionElementId
       ? requireObservation(state, regionObservationId || '', regionToken || '')
@@ -222,7 +222,7 @@ const registerObserve = (server: McpServer, state: RuntimeState) => server.regis
         includeCursor,
         includeAccessibility: true,
         includeOcr: mode !== 'fast',
-        includeOpenCv: mode !== 'fast',
+        includeOpenCv: true,
         includeOverlay: overlay && !inline
       });
       return await observeResult(state, observation, elementLimit, inline, overlay);

@@ -292,7 +292,7 @@ The server uses per-monitor-DPI-aware physical screen coordinates and DWM extend
 - Full scene maps and images are stored as TTL-bound resources.
 - Inline screenshots and Set-of-Mark images obey the configured screenshot byte limit.
 - `computer_observe` returns a configurable priority/source/spatially diverse subset instead of forcing hundreds of elements into the model context.
-- `fast` mode skips OCR and OpenCV; `standard` enables local fusion; `deep` also returns an inline Set-of-Mark image unless disabled.
+- `fast` mode skips OCR but keeps single-pass OpenCV grounding; `standard` adds OCR and broader UI Automation; `deep` adds multiscale OpenCV and returns an inline Set-of-Mark image unless disabled.
 - Server-side vision is opt-in per locate call and sees only the target image plus a bounded candidate set.
 - Automatic locate images appear only when matches are absent, ambiguous, weak, or OpenCV-only, keeping routine responses compact.
 

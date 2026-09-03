@@ -12,12 +12,19 @@ const decodeXmlText = (value: string) => value
   .replace(/&gt;/g, '>')
   .replace(/&amp;/g, '&');
 
-const powerShellError = (cause: unknown) => {
+const powerShellError = (cause: unknown, timeout: number) => {
+  const error = cause as { code?: unknown; killed?: unknown; name?: unknown; signal?: unknown; stderr?: unknown };
+  if (error.name === 'AbortError' || error.code === 'ABORT_ERR') {
+    return Object.assign(new Error('PowerShell desktop operation was cancelled.'), { name: 'AbortError' });
+  }
   const stderr = String((cause as { stderr?: unknown })?.stderr || '').trim();
   const matches = [...stderr.matchAll(/<S S="Error">([\s\S]*?)<\/S>/g)]
     .map((match) => decodeXmlText(match[1]).trim())
     .filter(Boolean);
-  const detail = matches.length > 0 ? matches.join('\n') : stderr && !stderr.includes('#< CLIXML') ? stderr : '';
+  const stopped = error.killed || error.signal || error.code === 'ETIMEDOUT';
+  const detail = stopped
+    ? `PowerShell desktop operation timed out after ${timeout}ms.`
+    : matches.length > 0 ? matches.join('\n') : stderr && !stderr.includes('#< CLIXML') ? stderr : '';
   return new Error((detail || 'PowerShell desktop operation failed.').slice(0, 2000));
 };
 
@@ -38,7 +45,7 @@ ${script}`;
     );
     return stdout.trim();
   } catch (cause) {
-    throw powerShellError(cause);
+    throw powerShellError(cause, timeout);
   }
 };
 

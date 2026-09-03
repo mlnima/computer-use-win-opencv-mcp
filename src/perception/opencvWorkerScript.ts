@@ -137,8 +137,8 @@ const contoursFrom = (cv, source, original, width, height, scale, maximum, level
     }
     cv.findContours(combined, contours, hierarchy, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE);
     const proposals = [];
-    const rawLimit = Math.min(level === 'deep' ? 5000 : 3000, Math.max(300, maximum * (level === 'deep' ? 8 : 5)));
-    const scanLimit = level === 'deep' ? 12000 : 7000;
+    const rawLimit = Math.min(level === 'deep' ? 5000 : level === 'fast' ? 1600 : 3000, Math.max(200, maximum * (level === 'deep' ? 8 : level === 'fast' ? 3 : 5)));
+    const scanLimit = level === 'deep' ? 12000 : level === 'fast' ? 3500 : 7000;
     const step = Math.max(1, Math.ceil(contours.size() / scanLimit));
     for (let index = 0; index < contours.size(); index += step) {
       if (hierarchyDepth(hierarchy, index) % 2 === 1) continue;
@@ -182,7 +182,7 @@ const contoursFrom = (cv, source, original, width, height, scale, maximum, level
         contour.delete();
       }
     }
-    const selected = suppress(proposals, Math.min(rawLimit, maximum + 160), 0.88);
+    const selected = suppress(proposals, Math.min(rawLimit, maximum + (level === 'fast' ? 80 : 160)), 0.88);
     return selected.flatMap((proposal) => {
       const point = interiorPoint(cv, contours, hierarchy, proposal.index, proposal.scaledBounds);
       if (!point) return [];
@@ -225,7 +225,7 @@ const analyze = async (message) => {
   const cv = await getCv();
   const prepared = await sharp(Buffer.from(message.image, 'base64')).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
   const source = new cv.Mat(prepared.info.height, prepared.info.width, cv.CV_8UC4);
-  const level = message.analysisLevel === 'deep' ? 'deep' : 'standard';
+  const level = message.analysisLevel === 'deep' ? 'deep' : message.analysisLevel === 'fast' ? 'fast' : 'standard';
   const maximum = clamp(Number.isFinite(message.maxElements) ? Math.round(message.maxElements) : 1, 1, 2000);
   try {
     source.data.set(prepared.data);

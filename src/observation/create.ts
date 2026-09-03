@@ -9,7 +9,7 @@ import type { Bounds } from '../types/geometry';
 import type { Observation, ScreenshotRecord } from '../types/perception';
 import type { RuntimeState } from '../types/runtime';
 import { getAccessibility } from '../windows/accessibility';
-import { getCursor, listWindows } from '../windows/windows';
+import { getCursor, getWindow, listWindows } from '../windows/windows';
 import { prepareObservationImage } from './image';
 import { pruneObservationStorage, storeImageResource, storeTextResource } from './resources';
 import { recordTrace } from '../runtime/state';
@@ -99,12 +99,14 @@ export const createObservation = async (
   const contextSignal = currentPerceptionSignal();
   const signal = options.signal && contextSignal ? AbortSignal.any([options.signal, contextSignal]) : options.signal || contextSignal;
   assertObservationActive(state, signal);
-  const refreshWindows = !options.windowHandle && options.target !== 'desktop' && options.target !== 'region';
-  const windows = await listWindows(signal, refreshWindows);
+  const needsForeground = !options.windowHandle && options.target !== 'desktop' && options.target !== 'region';
+  const windows = needsForeground ? await listWindows(signal, true) : [];
+  const directWindow = options.windowHandle ? await getWindow(options.windowHandle, signal) : undefined;
   assertObservationActive(state, signal);
-  const window = requireTarget(options, windows);
+  const window = directWindow || requireTarget(options, windows);
   const capture = await captureTarget({
     windowHandle: window?.handle,
+    window,
     bounds: options.bounds,
     includeCursor: options.includeCursor === true,
     signal

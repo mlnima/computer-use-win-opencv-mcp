@@ -1,4 +1,4 @@
-import type { Bounds, MonitorInfo } from '../types/geometry';
+import type { Bounds, MonitorInfo, WindowInfo } from '../types/geometry';
 import { listMonitors } from '../windows/monitors';
 import { getWindow } from '../windows/windows';
 import { validBounds } from '../windows/values';
@@ -7,6 +7,7 @@ import { captureDxgi, captureWgc, nativeMonitorIndex } from './nativeCapture';
 
 export type CaptureTarget = {
   windowHandle?: string;
+  window?: WindowInfo;
   bounds?: Bounds;
   includeCursor?: boolean;
   signal?: AbortSignal;
@@ -24,6 +25,10 @@ export type CaptureResult = {
 const contains = (outer: Bounds, inner: Bounds) =>
   inner.left >= outer.left && inner.top >= outer.top
   && inner.right <= outer.right && inner.bottom <= outer.bottom;
+
+const sameBounds = (first: Bounds, second: Bounds) =>
+  first.left === second.left && first.top === second.top
+  && first.right === second.right && first.bottom === second.bottom;
 
 const union = (items: Bounds[]): Bounds => ({
   left: Math.min(...items.map((entry) => entry.left)),
@@ -87,23 +92,36 @@ export const captureTarget = async (target: CaptureTarget = {}): Promise<Capture
   }
   if (target.bounds) validateBounds(target.bounds);
   if (target.windowHandle) {
-    const window = await getWindow(target.windowHandle, target.signal);
+    const window = target.window?.handle === target.windowHandle
+      ? target.window
+      : await getWindow(target.windowHandle, target.signal);
     if (window?.minimized) throw new Error(`Window is minimized: ${target.windowHandle}`);
     const sourceBounds = window?.bounds || target.bounds;
     if (!sourceBounds) throw new Error(`Window not found: ${target.windowHandle}`);
     validateBounds(sourceBounds);
     const requestedBounds = target.bounds || sourceBounds;
     const monitor = matchingMonitor(monitors, requestedBounds);
-    const native = await captureWgc({
+    const options = {
       windowHandle: target.windowHandle,
       sourceBounds,
       requestedBounds: target.bounds,
       includeCursor,
       signal: target.signal
-    }).catch(async () => monitor && !includeCursor
-      ? await captureMonitor(monitor, monitors, requestedBounds, false, target.signal)
-        .catch(async () => await captureGdi(requestedBounds, includeCursor, target.signal))
-      : await captureGdi(requestedBounds, includeCursor, target.signal));
+    };
+    const assertCurrentWindow = async () => {
+      const current = await getWindow(target.windowHandle!, target.signal);
+      if (!current) throw new Error(`Window not found: ${target.windowHandle}`);
+      if (current.minimized) throw new Error(`Window is minimized: ${target.windowHandle}`);
+      if (!sameBounds(current.bounds, sourceBounds)) throw new Error(`Window moved or resized during capture: ${target.windowHandle}`);
+    };
+    const native = await captureWgc(options).catch(async () => {
+      await assertCurrentWindow();
+      return monitor && !includeCursor
+        ? await captureMonitor(monitor, monitors, requestedBounds, false, target.signal)
+          .catch(async () => await captureGdi(requestedBounds, includeCursor, target.signal))
+        : await captureGdi(requestedBounds, includeCursor, target.signal);
+    });
+    await assertCurrentWindow();
     return { ...native, windowHandle: target.windowHandle };
   }
   const bounds = target.bounds || union(monitors);

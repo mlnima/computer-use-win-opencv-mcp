@@ -15,44 +15,77 @@ export const accessibilityTreeScript = (handle: string, maxNodes: number, bounds
   return `${assemblies}
 $root=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]([Int64]'${handle}'))
 if($null -eq $root){throw 'UI Automation root is unavailable.'}
+$cache=[System.Windows.Automation.CacheRequest]::new()
+$cache.AutomationElementMode=[System.Windows.Automation.AutomationElementMode]::Full
+$cache.TreeFilter=[System.Windows.Automation.Automation]::ControlViewCondition
+$cache.TreeScope=[System.Windows.Automation.TreeScope]::Element
+@(
+[System.Windows.Automation.AutomationElement]::RuntimeIdProperty
+[System.Windows.Automation.AutomationElement]::BoundingRectangleProperty
+[System.Windows.Automation.AutomationElement]::ControlTypeProperty
+[System.Windows.Automation.AutomationElement]::NameProperty
+[System.Windows.Automation.AutomationElement]::IsEnabledProperty
+[System.Windows.Automation.AutomationElement]::HasKeyboardFocusProperty
+[System.Windows.Automation.AutomationElement]::IsOffscreenProperty
+[System.Windows.Automation.AutomationElement]::IsKeyboardFocusableProperty
+[System.Windows.Automation.AutomationElement]::ClickablePointProperty
+[System.Windows.Automation.AutomationElement]::IsValuePatternAvailableProperty
+[System.Windows.Automation.AutomationElement]::IsInvokePatternAvailableProperty
+[System.Windows.Automation.AutomationElement]::IsTogglePatternAvailableProperty
+[System.Windows.Automation.AutomationElement]::IsSelectionItemPatternAvailableProperty
+[System.Windows.Automation.AutomationElement]::IsExpandCollapsePatternAvailableProperty
+[System.Windows.Automation.AutomationElement]::IsScrollItemPatternAvailableProperty
+[System.Windows.Automation.ValuePattern]::ValueProperty
+) | ForEach-Object {$cache.Add($_)}
+function Get-CachedValue($element,$property){
+$value=$element.GetCachedPropertyValue($property,$true)
+if($value -eq [System.Windows.Automation.AutomationElement]::NotSupported){return $null}
+return $value
+}
 $walker=[System.Windows.Automation.TreeWalker]::ControlViewWalker
+$cachedRoot=$root.GetUpdatedCache($cache)
 $queue=[System.Collections.Generic.Queue[object]]::new()
-$queue.Enqueue([PSCustomObject]@{element=$root;depth=0;parentId=''})
+$queue.Enqueue([PSCustomObject]@{element=$cachedRoot;depth=0;parentId=''})
 $items=[System.Collections.Generic.List[object]]::new()
 $visited=0;$visitLimit=${Math.min(100_000, Math.max(maxNodes, maxNodes * 20))}
 while($queue.Count -gt 0 -and $items.Count -lt ${maxNodes} -and $visited -lt $visitLimit){
 $visited++
 $item=$queue.Dequeue();$element=$item.element
 try {
-$runtimeId=($element.GetRuntimeId() -join '.')
-$child=$walker.GetFirstChild($element)
-while($null -ne $child){$queue.Enqueue([PSCustomObject]@{element=$child;depth=([int]$item.depth+1);parentId=$runtimeId});$child=$walker.GetNextSibling($child)}
-$current=$element.Current;$rect=$current.BoundingRectangle
+$runtimeId=((Get-CachedValue $element ([System.Windows.Automation.AutomationElement]::RuntimeIdProperty)) -join '.')
+$child=$walker.GetFirstChild($element,$cache)
+while($null -ne $child -and ($visited+$queue.Count) -lt $visitLimit){
+$queue.Enqueue([PSCustomObject]@{element=$child;depth=([int]$item.depth+1);parentId=$runtimeId})
+$child=$walker.GetNextSibling($child,$cache)
+}
+if(-not $runtimeId){continue}
+$rect=Get-CachedValue $element ([System.Windows.Automation.AutomationElement]::BoundingRectangleProperty)
+if($null -eq $rect){continue}
 if($rect.IsEmpty -or $rect.Width -lt 1 -or $rect.Height -lt 1){continue}
 if($rect.Right -le ${Math.round(target.left)} -or $rect.Left -ge ${Math.round(target.right)} -or $rect.Bottom -le ${Math.round(target.top)} -or $rect.Top -ge ${Math.round(target.bottom)}){continue}
+$enabled=[bool](Get-CachedValue $element ([System.Windows.Automation.AutomationElement]::IsEnabledProperty))
+$focusable=[bool](Get-CachedValue $element ([System.Windows.Automation.AutomationElement]::IsKeyboardFocusableProperty))
+$clickable=Get-CachedValue $element ([System.Windows.Automation.AutomationElement]::ClickablePointProperty)
+$hasClickable=$null -ne $clickable -and -not [double]::IsNaN($clickable.X) -and -not [double]::IsNaN($clickable.Y) -and -not [double]::IsInfinity($clickable.X) -and -not [double]::IsInfinity($clickable.Y)
 $actions=[System.Collections.Generic.List[string]]::new()
-$clickable=New-Object System.Windows.Point;$hasClickable=$element.TryGetClickablePoint([ref]$clickable)
-if($current.IsEnabled -and $current.IsKeyboardFocusable){$actions.Add('focus')}
-if($current.IsEnabled -and $hasClickable){$actions.Add('click');$actions.Add('doubleClick');$actions.Add('rightClick');$actions.Add('drag')}
-$pattern=$null;$value=''
-if($element.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern,[ref]$pattern)){$actions.Add('setValue');$value=[string]$pattern.Current.Value}
-$pattern=$null
-if($element.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern,[ref]$pattern)){$actions.Add('invoke')}
-$pattern=$null
-if($element.TryGetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern,[ref]$pattern)){$actions.Add('toggle')}
-$pattern=$null
-if($element.TryGetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern,[ref]$pattern)){$actions.Add('select')}
-$pattern=$null
-if($element.TryGetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern,[ref]$pattern)){$actions.Add('expand');$actions.Add('collapse')}
-$pattern=$null
-if($element.TryGetCurrentPattern([System.Windows.Automation.ScrollItemPattern]::Pattern,[ref]$pattern)){$actions.Add('scroll')}
+if($enabled -and $focusable){$actions.Add('focus')}
+if($enabled -and $hasClickable){$actions.Add('click');$actions.Add('doubleClick');$actions.Add('rightClick');$actions.Add('drag')}
+if([bool](Get-CachedValue $element ([System.Windows.Automation.AutomationElement]::IsValuePatternAvailableProperty))){$actions.Add('setValue')}
+if([bool](Get-CachedValue $element ([System.Windows.Automation.AutomationElement]::IsInvokePatternAvailableProperty))){$actions.Add('invoke')}
+if([bool](Get-CachedValue $element ([System.Windows.Automation.AutomationElement]::IsTogglePatternAvailableProperty))){$actions.Add('toggle')}
+if([bool](Get-CachedValue $element ([System.Windows.Automation.AutomationElement]::IsSelectionItemPatternAvailableProperty))){$actions.Add('select')}
+if([bool](Get-CachedValue $element ([System.Windows.Automation.AutomationElement]::IsExpandCollapsePatternAvailableProperty))){$actions.Add('expand');$actions.Add('collapse')}
+if([bool](Get-CachedValue $element ([System.Windows.Automation.AutomationElement]::IsScrollItemPatternAvailableProperty))){$actions.Add('scroll')}
+$controlType=Get-CachedValue $element ([System.Windows.Automation.AutomationElement]::ControlTypeProperty)
+$name=Get-CachedValue $element ([System.Windows.Automation.AutomationElement]::NameProperty)
+$value=Get-CachedValue $element ([System.Windows.Automation.ValuePattern]::ValueProperty)
 $items.Add([PSCustomObject]@{
 runtimeId=$runtimeId;parentId=[string]$item.parentId;depth=[int]$item.depth
-role=$current.ControlType.ProgrammaticName.Replace('ControlType.','');name=[string]$current.Name;value=$value
-enabled=[bool]$current.IsEnabled;focused=[bool]$current.HasKeyboardFocus;offscreen=[bool]$current.IsOffscreen
+role=$(if($null -ne $controlType){$controlType.ProgrammaticName.Replace('ControlType.','')}else{'Control'});name=[string]$name;value=[string]$value
+enabled=$enabled;focused=[bool](Get-CachedValue $element ([System.Windows.Automation.AutomationElement]::HasKeyboardFocusProperty));offscreen=[bool](Get-CachedValue $element ([System.Windows.Automation.AutomationElement]::IsOffscreenProperty))
 bounds=[PSCustomObject]@{left=[int]$rect.Left;top=[int]$rect.Top;right=[int]$rect.Right;bottom=[int]$rect.Bottom}
 clickablePoint=$(if($hasClickable){[PSCustomObject]@{x=[int]$clickable.X;y=[int]$clickable.Y}}else{$null})
-actions=@($actions | Select-Object -Unique)
+actions=@($actions)
 }) | Out-Null
 } catch {}
 }
