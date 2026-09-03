@@ -33,7 +33,6 @@ export const verifyPointerElement = async (prepared: PreparedPointer, signal?: A
     || semantic(current.value) !== semantic(prepared.uiaValue)) {
     throw new Error('Prepared UI Automation element identity changed.');
   }
-  if (prepared.uiaClickablePoint && !current.clickablePoint) throw new Error('Prepared UI Automation element is no longer clickable.');
   if (!current.pointerAncestors?.includes(prepared.uiaRuntimeId)) throw new Error('Prepared point no longer resolves to the intended UI Automation element.');
 };
 
