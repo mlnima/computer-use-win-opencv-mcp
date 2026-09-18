@@ -101,26 +101,16 @@ export const captureTarget = async (target: CaptureTarget = {}): Promise<Capture
     validateBounds(sourceBounds);
     const requestedBounds = target.bounds || sourceBounds;
     const monitor = matchingMonitor(monitors, requestedBounds);
-    const options = {
-      windowHandle: target.windowHandle,
-      sourceBounds,
-      requestedBounds: target.bounds,
-      includeCursor,
-      signal: target.signal
-    };
     const assertCurrentWindow = async () => {
       const current = await getWindow(target.windowHandle!, target.signal);
       if (!current) throw new Error(`Window not found: ${target.windowHandle}`);
       if (current.minimized) throw new Error(`Window is minimized: ${target.windowHandle}`);
       if (!sameBounds(current.bounds, sourceBounds)) throw new Error(`Window moved or resized during capture: ${target.windowHandle}`);
     };
-    const native = await captureWgc(options).catch(async () => {
-      await assertCurrentWindow();
-      return monitor && !includeCursor
-        ? await captureMonitor(monitor, monitors, requestedBounds, false, target.signal)
-          .catch(async () => await captureGdi(requestedBounds, includeCursor, target.signal))
-        : await captureGdi(requestedBounds, includeCursor, target.signal);
-    });
+    const native = monitor
+      ? await captureMonitor(monitor, monitors, requestedBounds, includeCursor, target.signal)
+        .catch(async () => await captureGdi(requestedBounds, includeCursor, target.signal))
+      : await captureGdi(requestedBounds, includeCursor, target.signal);
     await assertCurrentWindow();
     return { ...native, windowHandle: target.windowHandle };
   }

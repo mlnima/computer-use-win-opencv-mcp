@@ -81,12 +81,15 @@ $cache.TreeScope=[System.Windows.Automation.TreeScope]::Element
 [System.Windows.Automation.AutomationElement]::IsKeyboardFocusableProperty
 [System.Windows.Automation.AutomationElement]::ClickablePointProperty
 [System.Windows.Automation.AutomationElement]::IsValuePatternAvailableProperty
+[System.Windows.Automation.AutomationElement]::IsRangeValuePatternAvailableProperty
 [System.Windows.Automation.AutomationElement]::IsInvokePatternAvailableProperty
 [System.Windows.Automation.AutomationElement]::IsTogglePatternAvailableProperty
 [System.Windows.Automation.AutomationElement]::IsSelectionItemPatternAvailableProperty
 [System.Windows.Automation.AutomationElement]::IsExpandCollapsePatternAvailableProperty
 [System.Windows.Automation.AutomationElement]::IsScrollItemPatternAvailableProperty
 [System.Windows.Automation.ValuePattern]::ValueProperty
+[System.Windows.Automation.ValuePattern]::IsReadOnlyProperty
+[System.Windows.Automation.RangeValuePattern]::IsReadOnlyProperty
 ) | ForEach-Object {$cache.Add($_)}
 function Get-CachedValue($element,$property){
 $value=$element.GetCachedPropertyValue($property,$true)
@@ -122,7 +125,9 @@ $hasClickable=$null -ne $clickable -and -not [double]::IsNaN($clickable.X) -and 
 $actions=[System.Collections.Generic.List[string]]::new()
 if($enabled -and $focusable){$actions.Add('focus')}
 if($enabled -and $hasClickable){$actions.Add('click');$actions.Add('doubleClick');$actions.Add('rightClick');$actions.Add('drag')}
-if([bool](Get-CachedValue $element ([System.Windows.Automation.AutomationElement]::IsValuePatternAvailableProperty))){$actions.Add('setValue')}
+$writableValue=[bool](Get-CachedValue $element ([System.Windows.Automation.AutomationElement]::IsValuePatternAvailableProperty)) -and -not [bool](Get-CachedValue $element ([System.Windows.Automation.ValuePattern]::IsReadOnlyProperty))
+$writableRange=[bool](Get-CachedValue $element ([System.Windows.Automation.AutomationElement]::IsRangeValuePatternAvailableProperty)) -and -not [bool](Get-CachedValue $element ([System.Windows.Automation.RangeValuePattern]::IsReadOnlyProperty))
+if($enabled -and ($writableValue -or $writableRange)){$actions.Add('setValue')}
 if([bool](Get-CachedValue $element ([System.Windows.Automation.AutomationElement]::IsInvokePatternAvailableProperty))){$actions.Add('invoke')}
 if([bool](Get-CachedValue $element ([System.Windows.Automation.AutomationElement]::IsTogglePatternAvailableProperty))){$actions.Add('toggle')}
 if([bool](Get-CachedValue $element ([System.Windows.Automation.AutomationElement]::IsSelectionItemPatternAvailableProperty))){$actions.Add('select')}
@@ -184,7 +189,10 @@ if($null -eq $element){throw 'UI Automation element is stale or unavailable.'}
 $pattern=$null;$performed=$false;$used=''
 if($action -eq 'focus'){$element.SetFocus();$performed=$true;$used='SetFocus'}
 if($action -eq 'setValue'){
-if($element.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern,[ref]$pattern)){$pattern.SetValue($value);$performed=$true;$used='ValuePattern'}
+if($element.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern,[ref]$pattern) -and -not $pattern.Current.IsReadOnly){$pattern.SetValue($value);$performed=$true;$used='ValuePattern'}
+if(-not $performed -and $element.TryGetCurrentPattern([System.Windows.Automation.RangeValuePattern]::Pattern,[ref]$pattern) -and -not $pattern.Current.IsReadOnly){
+$pattern.SetValue([double]::Parse($value,[Globalization.CultureInfo]::InvariantCulture));$performed=$true;$used='RangeValuePattern'
+}
 }
 if($action -eq 'toggle'){
 if($element.TryGetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern,[ref]$pattern)){$pattern.Toggle();$performed=$true;$used='TogglePattern'}

@@ -280,11 +280,11 @@ The native worker remains warm after its first use. It sends real Windows `SendI
 
 ## Capture order
 
-1. Windows Graphics Capture for individual windows and cursor-inclusive monitor capture.
-2. DXGI Desktop Duplication for desktop/monitor frames where available.
+1. DXGI Desktop Duplication for visible desktop pixels where available.
+2. Windows Graphics Capture for monitor frames and cursor-inclusive capture.
 3. GDI `CopyFromScreen` fallback for ordinary interactive desktops.
 
-The server uses per-monitor-DPI-aware physical screen coordinates and DWM extended-frame bounds for WGC windows, with frame-size validation before coordinate mapping. Returned element geometry remains screenshot-local, and the server owns the image-to-screen transformation used for physical actions.
+Window observations crop the visible desktop to the window's DWM extended-frame bounds, preserving occluding windows and popups instead of showing hidden window contents. Window geometry is checked again after capture. The server uses per-monitor-DPI-aware physical screen coordinates. Returned element geometry remains screenshot-local, and the server owns the image-to-screen transformation used for physical actions.
 
 ## Performance and context behavior
 

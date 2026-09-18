@@ -148,7 +148,7 @@ export const focusWindow = async (handle: string, signal?: AbortSignal): Promise
   await runPowerShell(`
 $target=[IntPtr]([Int64]'${handle}')
 $foreground=[ComputerUse.WindowApi]::GetForegroundWindow()
-if($foreground -eq $target){return}
+if($foreground -eq $target){[ComputerUse.WindowApi]::BringWindowToTop($target) | Out-Null;return}
 $targetPid=[uint32]0;$foregroundPid=[uint32]0
 $targetThread=[ComputerUse.WindowApi]::GetWindowThreadProcessId($target,[ref]$targetPid)
 $foregroundThread=[ComputerUse.WindowApi]::GetWindowThreadProcessId($foreground,[ref]$foregroundPid)
