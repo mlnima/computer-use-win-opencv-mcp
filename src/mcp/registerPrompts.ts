@@ -2,7 +2,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 const operatingPrompt = `Use computer_observe before selecting a target. Prefer element IDs returned by UI Automation, OCR, and OpenCV fusion over raw coordinates.
 
-For pointer activation, call computer_pointer_prepare with a fresh observation and element ID, inspect the returned hover frame when ambiguity matters, then call computer_pointer_commit with the one-use prepare ID. Use the three-phase drag tools for drag-and-drop.
+For pointer activation, call computer_pointer_prepare with a fresh observation and element ID, inspect the returned hover frame when ambiguity matters, then call computer_pointer_commit with the one-use prepare ID. Complete each prepare/commit pair before preparing another target; preparations move the pointer. Element IDs belong only to their observation and must be located again after a new observation. Use the three-phase drag tools for drag-and-drop.
 
 Use deep observation or vision escalation for canvases, 3D software, games, and visually ambiguous icons. Vision may choose only registered element IDs. If grounding remains ambiguous, stop and report the candidates instead of guessing.
 

@@ -82,7 +82,7 @@ const cancelUnsafeDrag = async (state: RuntimeState, execution: Parameters<typeo
 const registerPreparedPointer = (server: McpServer, state: RuntimeState, clientId: string) => {
   server.registerTool('computer_pointer_prepare', {
     title: 'Prepare verified pointer action',
-    description: 'Resolve a fresh grounded element, focus its window, move physically, verify the hit target, and return a one-use commit ID.',
+    description: 'Resolve a fresh grounded element, focus its window, move physically, verify the hit target, and return a one-use commit ID. Commit this target before preparing another; each preparation moves the pointer. Element IDs belong only to their observation.',
     inputSchema: preparePointerSchema,
     annotations: { readOnlyHint: false, destructiveHint: false }
   }, ({ leaseId, ...options }, extra) => runTool(async () => {

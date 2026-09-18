@@ -5,6 +5,9 @@ export const nativeInputSourceBase64 = Buffer.from(nativeInputMemberSource, 'utf
 export const nativeWindowSourceBase64 = Buffer.from(winApiSource, 'utf8').toString('base64');
 
 export const inputWorkerScript = String.raw`
+[Console]::InputEncoding=[Text.UTF8Encoding]::new($false)
+[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)
+$OutputEncoding=[Console]::OutputEncoding
 $ErrorActionPreference = 'Stop'
 $source = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($env:COMPUTER_USE_NATIVE_INPUT_SOURCE))
 Add-Type -MemberDefinition $source -Language CSharp -Name NativeInput -Namespace InputBridge -UsingNamespace System.ComponentModel
