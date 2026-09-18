@@ -198,7 +198,7 @@ Only IDs supplied by the local grounding pipeline are accepted. Invented IDs and
 
 | Tool | Purpose |
 | --- | --- |
-| `computer_observe` | Capture foreground, window, region, desktop, or a prior element as a refined region in `fast`, `standard`, or `deep` mode; deep mode returns inline Set-of-Mark evidence by default |
+| `computer_observe` | Capture foreground, window, region, desktop, or a prior element as a refined region in `screenshot`, `accessibility`, `fast`, `standard`, or `deep` mode; screenshot/deep modes return inline images by default |
 | `computer_locate` | Rank elements by text, role, value, spatial language, confidence, and optional server vision; uncertain local results return inline Set-of-Mark evidence |
 | `computer_inspect` | Return one element's evidence and an optional crop resource |
 | `computer_overlay` | Build a Set-of-Mark overlay for all or selected element IDs |
@@ -247,7 +247,9 @@ All tools that mutate the visible desktop require an input lease. Call `computer
 7. Call `computer_pointer_commit` with the same lease ID and the one-use prepare ID.
 8. Evaluate the returned post-action frame or call `computer_wait` for the expected result.
 
-Prepared actions are bound to the client and lease. Their validity period uses `COMPUTER_USE_OBSERVATION_TTL_MS` and starts after the hover capture finishes. They retain their verified target evidence independently of the original observation's expiry. Before moving to a visual target, prepare compares the target-local pixels saved in the observation with a fresh capture; UI Automation targets use runtime identity and geometry. Commit then rejects a moved cursor, stale identity/geometry, another top-level window covering the target, or excessive local visual change. Verification and input execute within one queue slot. Callers may select `geometry` verification for animated surfaces or `none` only when they deliberately accept the risk.
+Prepared actions are bound to the client and lease. Their validity period uses `COMPUTER_USE_OBSERVATION_TTL_MS` and starts after the hover capture finishes. They retain their target evidence independently of the original observation's expiry. Visual verification is required: prepare compares the target-local pixels with a fresh capture, and commit rechecks visual state, cursor position, window process/geometry, occlusion, and UI Automation identity. A native rendering host is resolved through its live UIA descendants only when the point follows one unambiguous branch. An unrelated actionable child or overlapping descendants reject the click. OCR/OpenCV evidence cannot override a failed UIA hit check.
+
+The native input worker repeats the control identity, window geometry/process, pointer, occlusion, and expiration checks immediately before mouse-down or wheel input. Mouse movement paths, button timing, and typing behavior are unchanged. Requested hover and post-action screenshots are returned inline. `inputExecuted` records that input was sent; it does not establish task success. If post-observation fails, `postObservationError` explains why: inspect the current state before deciding whether to retry. Raw pointer and timeline tools remain unverified low-level input for explicitly identified drawing surfaces and 3D/game interaction, and must not bypass rejected control targets.
 
 ### Accurate drag-and-drop
 
@@ -285,14 +287,15 @@ The server uses per-monitor-DPI-aware physical screen coordinates and DWM extend
 ## Performance and context behavior
 
 - UI Automation, OCR, and OpenCV evidence are fused locally.
-- OCR, OpenCV, and native input workers are isolated and reused after warm-up.
+- Windows queries, UI Automation, OCR, OpenCV, and native input workers are isolated and reused after warm-up. UIA element references are retained while action properties are read fresh; timed-out or cancelled query workers are terminated and replaced.
 - CPU-heavy OpenCV WebAssembly analysis runs outside the HTTP/control event loop.
 - OpenCV matrices are released after every frame.
-- Screenshots are normalized to configured byte and dimension limits.
+- Screenshots already within the configured byte and dimension limits avoid redundant encoding.
 - Full scene maps and images are stored as TTL-bound resources.
 - Inline screenshots and Set-of-Mark images obey the configured screenshot byte limit.
-- `computer_observe` returns a configurable priority/source/spatially diverse subset instead of forcing hundreds of elements into the model context.
-- `fast` mode skips OCR but keeps single-pass OpenCV grounding; `standard` adds OCR and broader UI Automation; `deep` adds multiscale OpenCV and returns an inline Set-of-Mark image unless disabled.
+- `computer_observe` returns compact, priority/source/spatially selected elements within `COMPUTER_USE_ELEMENT_RESPONSE_MAX_BYTES` (24000 by default), even when the caller requests hundreds of elements. `computer_locate` searches the complete observation; `computer_inspect` and scene resources retain full evidence.
+- `screenshot` mode, or `elementLimit: 0`, skips element analysis. `accessibility` reads native controls without OCR/OpenCV. `fast` adds single-pass OpenCV; `standard` adds OCR and broader UIA; `deep` adds multiscale OpenCV and inline Set-of-Mark evidence. Global OCR/OpenCV enable flags are respected.
+- OCR/OpenCV results are reused only for byte-identical images and matching analysis settings, within the observation TTL and a four-image cache limit. UIA properties and input verification remain fresh.
 - Server-side vision is opt-in per locate call and sees only the target image plus a bounded candidate set.
 - Automatic locate images appear only when matches are absent, ambiguous, weak, or OpenCV-only, keeping routine responses compact.
 

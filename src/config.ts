@@ -23,6 +23,7 @@ export type ServerConfig = {
   resourceMaxItems: number;
   observationTtlMs: number;
   maxElements: number;
+  elementResponseMaxBytes: number;
   ocrEnabled: boolean;
   ocrLanguages: string;
   ocrLangPath?: string;
@@ -76,6 +77,7 @@ export const loadConfig = (): ServerConfig => ({
   resourceMaxItems: Math.max(16, numberValue('COMPUTER_USE_RESOURCE_MAX_ITEMS', 512)),
   observationTtlMs: numberValue('COMPUTER_USE_OBSERVATION_TTL_MS', 30_000),
   maxElements: numberValue('COMPUTER_USE_MAX_ELEMENTS', 500),
+  elementResponseMaxBytes: numberValue('COMPUTER_USE_ELEMENT_RESPONSE_MAX_BYTES', 24_000),
   ocrEnabled: boolValue('COMPUTER_USE_OCR_ENABLED', true),
   ocrLanguages: process.env.COMPUTER_USE_OCR_LANGUAGES || 'eng',
   ocrLangPath: pathOrUrl(process.env.COMPUTER_USE_OCR_LANG_PATH),

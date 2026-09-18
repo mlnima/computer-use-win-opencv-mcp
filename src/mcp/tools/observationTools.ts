@@ -80,7 +80,14 @@ const observeResult = async (
   inline: boolean,
   overlay: boolean
 ): Promise<CallToolResult> => {
-  const elements = selectDiverseElements(observation.elements, limit, observation.width, observation.height);
+  const candidates = selectDiverseElements(observation.elements, limit, observation.width, observation.height);
+  const elements: Observation['elements'] = [];
+  let bytes = 2;
+  for (const element of candidates) {
+    bytes += Buffer.byteLength(JSON.stringify(presentElement(element))) + 1;
+    if (bytes > state.config.elementResponseMaxBytes) break;
+    elements.push(element);
+  }
   const screenshot = state.screenshots.get(observation.screenshotId);
   let overlayResource: Awaited<ReturnType<typeof createObservationOverlay>> | undefined;
   let warning: string | undefined;

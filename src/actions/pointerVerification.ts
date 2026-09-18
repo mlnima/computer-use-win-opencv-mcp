@@ -97,6 +97,7 @@ $targetProcess=[uint32]0
 [ComputerUse.WindowApi]::GetWindowThreadProcessId($targetHandle,[ref]$targetProcess) | Out-Null
 if($targetProcess -ne ${prepared.windowProcessId || 0}){throw 'Prepared window process changed.'}` : ''}
 $cursor=[InputBridge.NativeInput]::Cursor()
+if([ComputerUse.WindowApi]::GetForegroundWindow() -ne $targetHandle){throw 'Prepared window lost foreground focus before native input.'}
 if([Math]::Abs($cursor[0]-${prepared.target.x}) -gt 2 -or [Math]::Abs($cursor[1]-${prepared.target.y}) -gt 2){throw 'Pointer moved before native input.'}
 $hitHandle=[IntPtr]([InputBridge.NativeInput]::WindowAtCursor())
 if([ComputerUse.WindowApi]::GetAncestor($hitHandle,2) -ne $targetHandle){throw 'Prepared point is occluded before native input.'}
