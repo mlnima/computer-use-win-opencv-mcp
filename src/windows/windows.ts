@@ -154,6 +154,7 @@ export const focusWindow = async (handle: string, signal?: AbortSignal): Promise
 Add-Type -MemberDefinition '${psLiteral(winApiSource)}' -Name WindowApi -Namespace ComputerUse
 $target=[IntPtr]([Int64]'${handle}')
 $foreground=[ComputerUse.WindowApi]::GetForegroundWindow()
+if($foreground -eq $target){return}
 $targetPid=[uint32]0;$foregroundPid=[uint32]0
 $targetThread=[ComputerUse.WindowApi]::GetWindowThreadProcessId($target,[ref]$targetPid)
 $foregroundThread=[ComputerUse.WindowApi]::GetWindowThreadProcessId($foreground,[ref]$foregroundPid)
@@ -164,7 +165,7 @@ if($targetThread -eq 0){throw 'Window not found.'}
 if($currentThread -ne $targetThread){$attachedCurrent=[ComputerUse.WindowApi]::AttachThreadInput($currentThread,$targetThread,$true)}
 if($foregroundThread -ne 0 -and $foregroundThread -ne $targetThread){$attachedForeground=[ComputerUse.WindowApi]::AttachThreadInput($foregroundThread,$targetThread,$true)}
 [ComputerUse.WindowApi]::PulseAlt()
-[ComputerUse.WindowApi]::ShowWindowAsync($target,9) | Out-Null
+if([ComputerUse.WindowApi]::IsIconic($target)){[ComputerUse.WindowApi]::ShowWindowAsync($target,9) | Out-Null}
 [ComputerUse.WindowApi]::BringWindowToTop($target) | Out-Null
 [ComputerUse.WindowApi]::SetActiveWindow($target) | Out-Null
 [ComputerUse.WindowApi]::SetFocus($target) | Out-Null

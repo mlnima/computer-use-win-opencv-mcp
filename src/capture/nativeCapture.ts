@@ -16,6 +16,7 @@ type NativeCaptureModule = {
 };
 
 type NativeFrame = {
+  buffer: Buffer;
   width: number;
   height: number;
   crop: (left: number, top: number, right: number, bottom: number) => NativeFrame;
@@ -168,6 +169,7 @@ export const captureDxgi = async (options: {
     frame = session.acquireNextFrame(250);
   }
   if (!frame) throw new Error('DXGI did not provide a desktop frame.');
+  if (!frame.buffer.some((value) => value !== 0)) throw new Error('DXGI returned an empty desktop frame.');
   if (options.signal?.aborted) throw abortError(options.signal);
   const result = cropFrame(frame, options.sourceBounds, options.requestedBounds);
   return encode(module, result.frame, result.bounds, 'dxgi-desktop-duplication');
