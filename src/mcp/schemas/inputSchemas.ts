@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-const lease = { leaseId: z.string().optional() };
+const lease = { leaseId: z.string().describe('Required input lease ID returned by computer_control action acquire. Renew it before it expires.') };
 const pointTarget = {
   observationId: z.string().min(1),
   token: z.string().min(1),
@@ -130,7 +130,7 @@ export const dragReleaseSchema = z.object({
 export const accessibilitySchema = z.object({
   ...lease,
   observationId: z.string().optional(),
-  token: z.string().optional(),
+  token: z.string().optional().describe('Required with observationId. Use the token returned by that observation.'),
   elementId: z.string().optional(),
   windowHandle: z.string().optional(),
   runtimeId: z.string().optional(),
