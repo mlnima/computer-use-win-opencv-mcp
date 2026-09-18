@@ -22,6 +22,7 @@ export type PreparedPointer = {
   elementId?: string;
   windowHandle?: string;
   windowProcessId?: number;
+  foregroundWindowHandle?: string;
   preparedAt: string;
   expiresAt: string;
   imageHash: string;

@@ -9,7 +9,7 @@ import type { Observation } from '../types/perception';
 import type { RuntimeState } from '../types/runtime';
 import { createObservation } from '../observation/create';
 import { newId, recordTrace } from '../runtime/state';
-import { focusWindow, getWindow } from '../windows/windows';
+import { focusWindow, foregroundHandle, getWindow } from '../windows/windows';
 import { compactObservation, requireObservation, targetPoint } from './observations';
 import { captureObservationSample, storedObservationSample, targetVisualRegion, verifyVisualSamples } from './visualVerification';
 import { pointerGuardScript, verifyPointerElement, verifyPointerHit, verifyPointerWindow } from './pointerVerification';
@@ -103,10 +103,12 @@ export const prepareGroundedPointer = async (
     if (!hit) throw new Error('No top-level window exists at the prepared point.');
     const imageHash = state.screenshots.get(observation.screenshotId)?.hash || '';
     const visualSample = await captureObservationSample(state, observation, region, execution.signal);
+    const foregroundWindowHandle = await foregroundHandle(execution.signal);
     guard();
     return {
       current,
       hit,
+      foregroundWindowHandle,
       visualSample,
       imageHash,
       snapshotDifference,
@@ -134,6 +136,7 @@ export const prepareGroundedPointer = async (
     elementId: target.element?.id,
     windowHandle: moved.current?.handle || moved.hit?.handle,
     windowProcessId: moved.current?.processId || moved.hit?.processId,
+    foregroundWindowHandle: moved.foregroundWindowHandle,
     preparedAt: new Date(now).toISOString(),
     expiresAt: new Date(now + state.config.observationTtlMs).toISOString(),
     imageHash: moved.imageHash,
