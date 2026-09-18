@@ -7,6 +7,7 @@ import { shutdownRuntime } from './runtime/shutdown';
 import { startHttpTransport, type HttpRuntime } from './transport/http';
 import { startStdioTransport } from './transport/stdio';
 import { normalizeIp } from './util/ip';
+import { runCaptureWorker } from './capture/nativeCapture';
 
 type TransportMode = 'stdio' | 'http' | 'all';
 
@@ -30,6 +31,7 @@ Usage:
 Authentication and perception settings are read from environment variables. See .env.example.`;
 
 const main = async () => {
+  if (process.argv.includes('--capture-worker')) return runCaptureWorker();
   if (process.argv.includes('--help') || process.argv.includes('-h')) {
     process.stdout.write(`${help}\n`);
     return;

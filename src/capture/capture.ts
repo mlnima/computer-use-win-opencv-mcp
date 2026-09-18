@@ -1,9 +1,12 @@
+import { fork, type ChildProcess } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import type { Bounds, MonitorInfo, WindowInfo } from '../types/geometry';
+import { childEnvironment } from '../util/childEnvironment';
 import { listMonitors } from '../windows/monitors';
 import { getWindow } from '../windows/windows';
 import { validBounds } from '../windows/values';
 import { captureGdi } from './gdiCapture';
-import { captureDxgi, captureWgc, nativeMonitorIndex } from './nativeCapture';
+import type { NativeCaptureRequest, NativeCaptureResult } from './nativeCapture';
 
 export type CaptureTarget = {
   windowHandle?: string;
@@ -57,6 +60,84 @@ const awaitSignal = async <T>(operation: Promise<T>, signal?: AbortSignal): Prom
   finally { signal.removeEventListener('abort', abort); }
 };
 
+let captureWorker: { child: ChildProcess; closed: Promise<void> } | undefined;
+let captureQueue: Promise<unknown> = Promise.resolve();
+let captureRequestId = 0;
+let captureClosing = false;
+
+const stopCaptureWorker = async () => {
+  const worker = captureWorker;
+  if (!worker) return;
+  worker.child.kill();
+  await worker.closed;
+  if (captureWorker === worker) captureWorker = undefined;
+};
+
+const getCaptureWorker = () => {
+  if (captureWorker) return captureWorker;
+  const child = fork(fileURLToPath(import.meta.url), ['--capture-worker'], {
+    serialization: 'advanced', windowsHide: true,
+    stdio: ['ignore', 'ignore', 'pipe', 'ipc'], env: childEnvironment()
+  });
+  child.stderr?.resume();
+  child.on('error', () => undefined);
+  const worker: { child: ChildProcess; closed: Promise<void> } = { child, closed: new Promise<void>((resolve) => child.once('close', () => {
+    if (captureWorker === worker) captureWorker = undefined;
+    resolve();
+  })) };
+  captureWorker = worker;
+  return worker;
+};
+
+const requestCapture = <T>(request: NativeCaptureRequest, signal?: AbortSignal): Promise<T> => {
+  const operation = captureQueue.then(async () => {
+    if (signal?.aborted) throw abortError(signal);
+    if (captureClosing) throw new Error('Native capture is shutting down.');
+    const { child } = getCaptureWorker();
+    const id = ++captureRequestId;
+    let cleanup: () => void = () => undefined;
+    try {
+      return await new Promise<T>((resolve, reject) => {
+        const message = (response: { id: number; result?: T; error?: string }) => {
+          if (response.id !== id) return;
+          response.error ? reject(new Error(response.error)) : resolve(response.result!);
+        };
+        const closed = () => reject(new Error('Native capture worker exited before returning a frame.'));
+        const abort = () => reject(abortError(signal!));
+        const timer = setTimeout(() => reject(new Error('Native capture worker timed out.')), 15_000);
+        cleanup = () => {
+          clearTimeout(timer);
+          child.removeListener('message', message);
+          child.removeListener('close', closed);
+          child.removeListener('error', reject);
+          signal?.removeEventListener('abort', abort);
+        };
+        child.on('message', message);
+        child.once('close', closed);
+        child.once('error', reject);
+        signal?.addEventListener('abort', abort, { once: true });
+        child.send({ id, request }, (error) => { if (error) reject(error); });
+      });
+    } catch (error) {
+      await stopCaptureWorker();
+      throw error;
+    } finally { cleanup(); }
+  });
+  captureQueue = operation.catch(() => undefined);
+  return awaitSignal(operation, signal);
+};
+
+export const nativeCaptureSupport = async (signal?: AbortSignal) => {
+  try { return await requestCapture<Record<string, unknown>>({ action: 'support' }, signal); }
+  catch (error) { return { installed: false, error: error instanceof Error ? error.message : String(error) }; }
+};
+
+export const terminateNativeCapture = async () => {
+  captureClosing = true;
+  await stopCaptureWorker();
+  await captureQueue;
+};
+
 const captureMonitor = async (
   monitor: MonitorInfo,
   monitors: MonitorInfo[],
@@ -65,11 +146,10 @@ const captureMonitor = async (
   signal?: AbortSignal
 ) => {
   const fallbackIndex = Math.max(1, monitors.indexOf(monitor) + 1);
-  const monitorIndex = await nativeMonitorIndex(monitor.name, fallbackIndex);
-  if (signal?.aborted) throw abortError(signal);
-  const options = { monitorIndex, sourceBounds: monitor, requestedBounds, signal };
-  if (includeCursor) return await captureWgc({ ...options, includeCursor });
-  return await captureDxgi(options).catch(async () => await captureWgc({ ...options, includeCursor }));
+  return await requestCapture<NativeCaptureResult>({
+    action: 'capture', deviceName: monitor.name, fallbackIndex,
+    sourceBounds: monitor, requestedBounds, includeCursor
+  }, signal);
 };
 
 const validateBounds = (bounds: Bounds) => {

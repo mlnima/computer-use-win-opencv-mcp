@@ -10,6 +10,7 @@ import type { RuntimeState } from '../../types/runtime';
 import { listMonitors } from '../../windows/monitors';
 import { controlWindow, getWindow, listWindows } from '../../windows/windows';
 import { runTool } from '../toolResult';
+import { nativeCaptureSupport } from '../../capture/capture';
 
 const boundsSchema = z.object({
   left: z.number(),
@@ -37,15 +38,6 @@ const required = (value: string | undefined, name: string) => {
   return value;
 };
 
-const captureSupport = async () => {
-  try {
-    const capture = await import('@screen-capture/node');
-    return { installed: true, ...(capture.captureApiSupport?.() || {}) };
-  } catch (error) {
-    return { installed: false, error: error instanceof Error ? error.message : String(error) };
-  }
-};
-
 const registerStatus = (server: McpServer, state: RuntimeState, clientId: string) => server.registerTool('computer_status', {
   title: 'Computer-use capabilities',
   description: 'Report transport-independent capture, grounding, model, input, and runtime capabilities.',
@@ -58,7 +50,7 @@ const registerStatus = (server: McpServer, state: RuntimeState, clientId: string
     return { error: error instanceof Error ? error.message : String(error) };
   });
   extra.signal.throwIfAborted();
-  const capture = await captureSupport();
+  const capture = await nativeCaptureSupport(extra.signal);
   extra.signal.throwIfAborted();
   const control = await controlStatus(state, clientId);
   extra.signal.throwIfAborted();

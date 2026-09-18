@@ -13,6 +13,7 @@ type NativeCaptureModule = {
   ImageFormat: { Png: unknown };
   enumerateMonitors?: () => Array<Record<string, unknown>>;
   isSupported?: () => boolean;
+  captureApiSupport?: () => Record<string, unknown>;
 };
 
 type NativeFrame = {
@@ -29,6 +30,15 @@ export type NativeCaptureResult = {
   height: number;
   bounds: Bounds;
   backend: string;
+};
+
+export type NativeCaptureRequest = { action: 'support' } | {
+  action: 'capture';
+  deviceName: string;
+  fallbackIndex: number;
+  sourceBounds: Bounds;
+  requestedBounds?: Bounds;
+  includeCursor: boolean;
 };
 
 let modulePromise: Promise<NativeCaptureModule | null> | undefined;
@@ -149,7 +159,7 @@ export const captureWgc = async (options: {
     const result = cropFrame(frame, options.sourceBounds, options.requestedBounds);
     return encode(module, result.frame, result.bounds, options.windowHandle ? 'wgc-window' : 'wgc-monitor');
   } finally {
-    await withTimeout(capture.stop(), 1_000).catch(() => undefined);
+    await capture.stop();
   }
 };
 
@@ -173,4 +183,28 @@ export const captureDxgi = async (options: {
   if (options.signal?.aborted) throw abortError(options.signal);
   const result = cropFrame(frame, options.sourceBounds, options.requestedBounds);
   return encode(module, result.frame, result.bounds, 'dxgi-desktop-duplication');
+};
+
+export const runCaptureWorker = () => {
+  let queue = Promise.resolve();
+  process.once('disconnect', () => process.exit(0));
+  process.on('message', ({ id, request }: { id: number; request: NativeCaptureRequest }) => {
+    queue = queue.then(async () => {
+      try {
+        let result: unknown;
+        if (request.action === 'support') {
+          const module = await loadModule();
+          result = module ? { installed: true, ...module.captureApiSupport?.() } : { installed: false };
+        } else {
+          const monitorIndex = await nativeMonitorIndex(request.deviceName, request.fallbackIndex);
+          const options = { ...request, monitorIndex };
+          result = request.includeCursor ? await captureWgc(options)
+            : await captureDxgi(options).catch(async () => await captureWgc(options));
+        }
+        process.send?.({ id, result });
+      } catch (error) {
+        process.send?.({ id, error: error instanceof Error ? error.message : String(error) });
+      }
+    });
+  });
 };
