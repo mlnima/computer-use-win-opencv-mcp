@@ -1,4 +1,4 @@
-import { fork, type ChildProcess } from 'node:child_process';
+import { spawn, type ChildProcess } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import type { Bounds, MonitorInfo, WindowInfo } from '../types/geometry';
 import { childEnvironment } from '../util/childEnvironment';
@@ -75,7 +75,7 @@ const stopCaptureWorker = async () => {
 
 const getCaptureWorker = () => {
   if (captureWorker) return captureWorker;
-  const child = fork(fileURLToPath(import.meta.url), ['--capture-worker'], {
+  const child = spawn(process.execPath, [fileURLToPath(import.meta.url), '--capture-worker'], {
     serialization: 'advanced', windowsHide: true,
     stdio: ['ignore', 'ignore', 'pipe', 'ipc'], env: childEnvironment()
   });
