@@ -101,7 +101,7 @@ const registerTargets = (server: McpServer, state: RuntimeState, clientId: strin
   annotations: { readOnlyHint: false, destructiveHint: true }
 }, ({ action, windowHandle, bounds, leaseId }, extra) => runTool(async () => {
   if (action === 'list') {
-    const [windows, monitors] = await Promise.all([listWindows(extra.signal), listMonitors(extra.signal)]);
+    const [windows, monitors] = await Promise.all([listWindows(extra.signal, true), listMonitors(extra.signal)]);
     return { windows, monitors };
   }
   const handle = required(windowHandle, 'windowHandle');
