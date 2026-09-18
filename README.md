@@ -290,6 +290,7 @@ Window observations crop the visible desktop to the window's DWM extended-frame 
 
 - UI Automation, OCR, and OpenCV evidence are fused locally.
 - Windows queries, UI Automation, OCR, OpenCV, and native input workers are isolated and reused after warm-up. UIA element references are retained while action properties are read fresh; timed-out or cancelled query workers are terminated and replaced.
+- Native capture requests run serially in a reused child process. A capture crash or timeout leaves the MCP and input workers running; the failed capture can use GDI, and the next native request starts a replacement worker.
 - CPU-heavy OpenCV WebAssembly analysis runs outside the HTTP/control event loop.
 - OpenCV matrices are released after every frame.
 - Screenshots already within the configured byte and dimension limits avoid redundant encoding.
