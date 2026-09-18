@@ -44,14 +44,20 @@ export const captureObservationSample = async (
   signal?: AbortSignal
 ) => {
   assertActive(state, signal);
+  const bounds = {
+    left: Math.max(region.left, observation.bounds.left),
+    top: Math.max(region.top, observation.bounds.top),
+    right: Math.min(region.right, observation.bounds.right),
+    bottom: Math.min(region.bottom, observation.bounds.bottom)
+  };
   const capture = await captureTarget({
     windowHandle: observation.window?.handle,
-    bounds: region,
+    bounds,
     includeCursor: false,
     signal
   });
   assertActive(state, signal);
-  const sample = await sampleScreenRegion(capture.bytes, capture.bounds, region);
+  const sample = await sampleScreenRegion(capture.bytes, capture.bounds, bounds);
   assertActive(state, signal);
   return sample;
 };
