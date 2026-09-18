@@ -28,6 +28,7 @@ const createClient = (state: RuntimeState): WorkerClient => {
     '-NoLogo',
     '-NoProfile',
     '-NonInteractive',
+    '-MTA',
     '-ExecutionPolicy',
     'Bypass',
     '-EncodedCommand',
