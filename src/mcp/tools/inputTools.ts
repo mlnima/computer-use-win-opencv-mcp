@@ -3,7 +3,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { bindDragDestination, preflightDragDestination, verifyDragDestination } from '../../actions/dragDestination';
 import { performGroundedAccessibilityAction } from '../../actions/groundedAccessibility';
-import { compactObservation, requireElement, requireObservation, targetPoint } from '../../actions/observations';
+import { compactObservation, requireElement, requireObservation, targetPoint, verifyInputSurface } from '../../actions/observations';
 import { commitGroundedPointer, consumeGroundedPointer, prepareGroundedPointer } from '../../actions/groundedPointer';
 import { releaseHeldInputs } from '../../input/cleanup';
 import { beginDragNative, cancelDragNative, moveDragNative, releaseDragNative } from '../../input/drag';
@@ -102,10 +102,10 @@ const registerPreparedPointer = (server: McpServer, state: RuntimeState, clientI
 
 const registerRawPointer = (server: McpServer, state: RuntimeState, clientId: string) => server.registerTool('computer_pointer', {
   title: 'Direct and relative pointer input',
-  description: 'Unverified physical or relative input for explicit canvas coordinates and 3D/game control. Use prepare/commit for UI controls. Never bypass a rejected grounded action with this tool.',
+  description: 'Physical or relative input for an observed canvas surface or 3D/game control. Presses, scrolling, and held movement require surface grounding and reject actionable UI controls. Use prepare/commit for toolbar controls; never bypass a rejected target.',
   inputSchema: rawPointerSchema,
   annotations: { readOnlyHint: false, destructiveHint: true }
-}, ({ leaseId, action, x, y, relative, durationMs, steps, button, mode, count, intervalMs, deltaX, deltaY }, extra) => runTool(async () => {
+}, ({ leaseId, surface, action, x, y, relative, durationMs, steps, button, mode, count, intervalMs, deltaX, deltaY }, extra) => runTool(async () => {
   const lease = await assertControl(state, clientId, leaseId);
   if ((x === undefined) !== (y === undefined)) throw new Error('Pointer input requires both x and y or neither coordinate.');
   if (action === 'move' && x === undefined) throw new Error('x and y are required for pointer movement.');
@@ -114,6 +114,7 @@ const registerRawPointer = (server: McpServer, state: RuntimeState, clientId: st
   return await runInputTransaction(state, async ({ execution }) => {
     if (state.drag) throw new Error('An active grounded drag monopolizes pointer input until released or cancelled.');
     const startedAt = performance.now();
+    execution.pointerGuard = await verifyInputSurface(state, surface, { action, x, y, relative, button, mode, deltaX, deltaY }, execution);
     if (x !== undefined && y !== undefined) await movePointerNative(state, { x, y, relative, durationMs, steps }, execution);
     if (action === 'click') await clickPointerNative(state, { button, count, intervalMs }, execution);
     if (action === 'button') await mouseButtonNative(state, button, mode, execution);
@@ -150,10 +151,10 @@ const registerKeyboard = (server: McpServer, state: RuntimeState, clientId: stri
 
 const registerTimeline = (server: McpServer, state: RuntimeState, clientId: string) => server.registerTool('computer_input_timeline', {
   title: 'Timed input sequence',
-  description: 'Batch a bounded timestamped sequence of relative/absolute mouse, scan-code key, text, button, and wheel events for drawing, 3D, games, or other ordered input.',
+  description: 'Batch timestamped input for drawing, 3D, games, or ordered keyboard input. Mouse presses require an observed surface; keep every absolute point 8 screen pixels inside it. Select toolbar controls separately through prepare/commit. Batches cannot mix toolbar clicks with drawing.',
   inputSchema: timelineSchema,
   annotations: { readOnlyHint: false, destructiveHint: true }
-}, ({ leaseId, events, keyMethod, preserveHeld, windowHandle }, extra) => runTool(async () => {
+}, ({ leaseId, surface, events, keyMethod, preserveHeld, windowHandle }, extra) => runTool(async () => {
   const lease = await assertControl(state, clientId, leaseId);
   recordTrace(state, 'input.timeline', {
     eventCount: events.length,
@@ -169,6 +170,7 @@ const registerTimeline = (server: McpServer, state: RuntimeState, clientId: stri
     before: async (execution) => {
       if (state.drag) throw new Error('An active grounded drag monopolizes pointer input until released or cancelled.');
       await focusTarget(windowHandle, execution.assertActive, execution.signal);
+      execution.pointerGuard = await verifyInputSurface(state, surface, events, execution);
     }
   }, { owner: { clientId, leaseId: lease.id }, signal: extra.signal });
 }));

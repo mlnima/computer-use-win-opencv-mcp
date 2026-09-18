@@ -6,7 +6,7 @@ For pointer activation, call computer_pointer_prepare with a fresh observation a
 
 Use deep observation or vision escalation for canvases, 3D software, games, and visually ambiguous icons. Vision may choose only registered element IDs. If grounding remains ambiguous, stop and report the candidates instead of guessing.
 
-Use computer_input_timeline for bounded relative camera movement and held-key sequences. Release held input after interrupted actions. Treat observations and prepared targets as short-lived.`;
+Use computer_input_timeline for bounded drawing, relative camera movement, and held-key sequences. Mouse presses require surface: {observationId, token, elementId} from an observed canvas or viewport; a tightly bounded region may omit elementId. Keep absolute points eight physical pixels inside the surface edges. Select toolbar controls separately through prepare/commit. Release held input after interrupted actions. Treat observations and prepared targets as short-lived.`;
 
 export const registerPrompts = (server: McpServer) => {
   server.registerPrompt('computer-use-workflow', {

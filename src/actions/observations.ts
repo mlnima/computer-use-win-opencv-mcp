@@ -3,6 +3,13 @@ import type { Observation, ScreenElement } from '../types/perception';
 import type { RuntimeState } from '../types/runtime';
 import { boundsHeight, boundsWidth, pointInBounds } from '../types/geometry';
 import { containsPoint } from '../perception/geometry';
+import type { InputExecution } from '../input/execution';
+import type { MouseButton, TimelineEvent } from '../types/input';
+import { getHeldInputState } from '../input/heldState';
+import { probeNative } from '../input/nativeActions';
+import { foregroundHandle, getWindow, windowFromPoint } from '../windows/windows';
+import { inputSurfaceGuardScript } from './pointerVerification';
+import { captureObservationSample, storedObservationSample, targetVisualRegion, verifyVisualSamples } from './visualVerification';
 
 export const requireObservation = (state: RuntimeState, id: string, token?: string): Observation => {
   const observation = state.observations.get(id);
@@ -49,11 +56,50 @@ export const targetPoint = (
   if (element?.sources.includes('uia') && !element.uiaClickablePoint && !detectorBacked && !input.allowRaw) throw new Error('This UI Automation element has no verified clickable point. Use computer_accessibility, a detector-backed target, or allowRaw explicitly.');
   const local = element?.safePoint || (input.x !== undefined && input.y !== undefined ? { x: input.x, y: input.y } : undefined);
   if (!local) throw new Error('elementId or screenshot-local x and y are required.');
-  if (!element && !input.allowRaw) {
-    const overlaps = observation.elements.filter((entry) => entry.enabled && !entry.offscreen && entry.confidence >= 0.7 && containsPoint(entry.bounds, local));
-    if (overlaps.length) throw new Error(`Raw point overlaps grounded element ${overlaps[0].id}. Use its elementId or set allowRaw.`);
-  }
   return { local, screen: imageToScreenPoint(observation, local), element };
+};
+
+type InputSurface = { observationId: string; token: string; elementId?: string };
+type DirectInput = { action: string; x?: number; y?: number; relative: boolean; button: MouseButton; mode: 'press' | 'down' | 'up'; deltaX?: number; deltaY?: number };
+
+export const verifyInputSurface = async (state: RuntimeState, surface: InputSurface | undefined, input: TimelineEvent[] | DirectInput, execution: InputExecution) => {
+  const events: TimelineEvent[] = Array.isArray(input) ? [...input].sort((a, b) => a.at - b.at) : [
+    ...(input.x === undefined ? [] : [{ at: 0, type: 'move' as const, x: input.x, y: input.y!, relative: input.relative }]),
+    ...(input.action === 'move' ? [] : input.action === 'scroll'
+      ? [{ at: 0, type: 'wheel' as const, deltaX: input.deltaX, deltaY: input.deltaY }]
+      : [{ at: 0, type: 'button' as const, button: input.button, mode: input.action === 'click' ? 'press' as const : input.mode }])
+  ];
+  const held = getHeldInputState(state).buttons.size > 0;
+  if (!events.some((event) => event.type === 'wheel' || event.type === 'button' && event.mode !== 'up' || event.type === 'move' && held)) return undefined;
+  if (!surface) throw new Error('Raw pointer presses, scrolling, and drawing require surface: {observationId, token, elementId}. Use a fresh canvas element or a region observation; use prepare/commit for UI controls.');
+  const observation = requireObservation(state, surface.observationId, surface.token);
+  const element = surface.elementId ? requireElement(observation, surface.elementId) : undefined;
+  if (!element && observation.target !== 'region') throw new Error('Input surface requires an elementId or a tightly bounded region observation.');
+  if (element?.actions.some((action) => ['invoke', 'toggle', 'select', 'setValue', 'expand', 'collapse'].includes(action))) throw new Error('This is an actionable control, not an input surface. Use prepare/commit.');
+  const outer = element ? imageToScreenBounds(observation, element.bounds) : observation.bounds;
+  const bounds = { left: outer.left + 8, top: outer.top + 8, right: outer.right - 8, bottom: outer.bottom - 8 };
+  let point: Point = await probeNative(state, execution);
+  let first: Point | undefined = held ? point : undefined;
+  for (const event of events) {
+    if (event.type === 'move' && !event.relative) {
+      point = { x: event.x, y: event.y };
+      if (!containsPoint(bounds, point)) throw new Error('Raw input leaves the observed surface interior. Keep at least 8 screen pixels inside its edges; use verified clicks for toolbars.');
+    }
+    if (event.type === 'wheel' || event.type === 'button' && event.mode !== 'up') {
+      if (!containsPoint(bounds, point)) throw new Error('Raw input starts outside the observed surface interior.');
+      first ||= point;
+    }
+  }
+  if (!first || !containsPoint(bounds, first)) throw new Error('Held pointer input starts outside the observed surface interior.');
+  const window = observation.window ? await getWindow(observation.window.handle, execution.signal) : await windowFromPoint(first, execution.signal);
+  if (!window || !window.visible || window.minimized) throw new Error('Input surface window is unavailable.');
+  if (observation.window && (window.processId !== observation.window.processId || Object.keys(window.bounds).some((key) => window.bounds[key as keyof typeof window.bounds] !== observation.window!.bounds[key as keyof typeof window.bounds]))) throw new Error('Input surface window changed since observation.');
+  const region = targetVisualRegion(first, bounds);
+  const original = await storedObservationSample(state, observation, region, execution.signal);
+  verifyVisualSamples(state, original, await captureObservationSample(state, observation, region, execution.signal), 'Input surface changed before execution');
+  const foreground = await foregroundHandle(execution.signal);
+  execution.assertActive();
+  return inputSurfaceGuardScript(window, bounds, foreground, observation.expiresAt, element?.uiaRuntimeId);
 };
 
 export const compactObservation = (observation: Observation) => ({

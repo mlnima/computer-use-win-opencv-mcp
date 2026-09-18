@@ -31,8 +31,9 @@ while($null -ne $child -and ($visited+$queue.Count) -lt 30000){$queue.Enqueue($c
 }
 if($null -ne $element -and $null -ne $elements){$elements[$wanted]=$element}`;
 
-export const accessibilityHitScript = (point: Point) => `
-$pointElement=[System.Windows.Automation.AutomationElement]::FromPoint([System.Windows.Point]::new(${Math.round(point.x)},${Math.round(point.y)}))
+export const accessibilityHitScript = (point?: Point) => `
+$hitX=${point ? Math.round(point.x) : '$cursor[0]'};$hitY=${point ? Math.round(point.y) : '$cursor[1]'}
+$pointElement=[System.Windows.Automation.AutomationElement]::FromPoint([System.Windows.Point]::new($hitX,$hitY))
 $pointWalker=[System.Windows.Automation.TreeWalker]::RawViewWalker
 $hitDepth=0;$hitVisited=0
 while($null -ne $pointElement){
@@ -43,8 +44,8 @@ while($null -ne $hitChild){
 $hitVisited++;if($hitVisited -gt 2000){throw 'Point hit traversal exceeded its verification limit.'}
 $hitCurrent=$hitChild.Current;$hitRect=$hitCurrent.BoundingRectangle
 if(-not $hitCurrent.IsOffscreen -and -not $hitRect.IsEmpty -and
-$hitRect.Left -le ${Math.round(point.x)} -and $hitRect.Right -gt ${Math.round(point.x)} -and
-$hitRect.Top -le ${Math.round(point.y)} -and $hitRect.Bottom -gt ${Math.round(point.y)}){$hitChildren.Add($hitChild)}
+$hitRect.Left -le $hitX -and $hitRect.Right -gt $hitX -and
+$hitRect.Top -le $hitY -and $hitRect.Bottom -gt $hitY){$hitChildren.Add($hitChild)}
 $hitChild=$pointWalker.GetNextSibling($hitChild)
 }
 if($hitChildren.Count -eq 0){break}

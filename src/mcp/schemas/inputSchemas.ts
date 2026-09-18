@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 const lease = { leaseId: z.string().describe('Required input lease ID returned by computer_control action acquire. Renew it before it expires.') };
+const surface = z.object({ observationId: z.string().min(1), token: z.string().min(1), elementId: z.string().optional() }).optional().describe('Required for raw pointer presses, scrolling, or drawing. Use an observed canvas element or tightly bounded region. All absolute points must stay at least 8 screen pixels inside its bounds.');
 const pointTarget = {
   observationId: z.string().min(1),
   token: z.string().min(1),
@@ -29,6 +30,7 @@ export const commitPointerSchema = z.object({
 
 export const rawPointerSchema = z.object({
   ...lease,
+  surface,
   action: z.enum(['move', 'click', 'button', 'scroll']),
   x: z.number().optional(),
   y: z.number().optional(),
@@ -94,6 +96,7 @@ const wheelEvent = z.object({
 
 export const timelineSchema = z.object({
   ...lease,
+  surface,
   events: z.array(z.discriminatedUnion('type', [moveEvent, buttonEvent, keyEvent, textEvent, wheelEvent])),
   keyMethod: z.enum(['virtual-key', 'scan-code']).default('scan-code'),
   preserveHeld: z.boolean().default(false),

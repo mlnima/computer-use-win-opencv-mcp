@@ -1,4 +1,5 @@
 import type { PreparedPointer } from '../types/input';
+import type { Bounds, WindowInfo } from '../types/geometry';
 import { pointInBounds } from '../types/geometry';
 import { getAccessibilityElement } from '../windows/accessibility';
 import { getWindow, windowFromPoint } from '../windows/windows';
@@ -103,3 +104,41 @@ $hitHandle=[IntPtr]([InputBridge.NativeInput]::WindowAtCursor())
 if([ComputerUse.WindowApi]::GetAncestor($hitHandle,2) -ne $targetHandle){throw 'Prepared point is occluded before native input.'}
 if([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() -ge ${Date.parse(prepared.expiresAt)}){throw 'Prepared pointer expired during native verification.'}`;
 };
+
+export const inputSurfaceGuardScript = (window: WindowInfo, bounds: Bounds, foreground: string, expiresAt: string, runtimeId?: string) => `
+if([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() -ge ${Date.parse(expiresAt)}){throw 'Input surface observation expired.'}
+$targetHandle=[IntPtr]([Int64]'${window.handle}');$rect=New-Object ComputerUse.WindowApi+RECT
+if(-not [ComputerUse.WindowApi]::GetVisualWindowRect($targetHandle,[ref]$rect) -or
+$rect.Left -ne ${window.bounds.left} -or $rect.Top -ne ${window.bounds.top} -or $rect.Right -ne ${window.bounds.right} -or $rect.Bottom -ne ${window.bounds.bottom}){throw 'Input surface window geometry changed.'}
+$targetProcess=[uint32]0;[ComputerUse.WindowApi]::GetWindowThreadProcessId($targetHandle,[ref]$targetProcess) | Out-Null
+if($targetProcess -ne ${window.processId}){throw 'Input surface window was replaced.'}
+if([ComputerUse.WindowApi]::GetForegroundWindow().ToInt64().ToString() -ne '${foreground}'){throw 'Input surface foreground changed.'}
+$cursor=[InputBridge.NativeInput]::Cursor()
+if($cursor[0] -lt ${bounds.left} -or $cursor[0] -ge ${bounds.right} -or $cursor[1] -lt ${bounds.top} -or $cursor[1] -ge ${bounds.bottom}){throw 'Pointer is outside the observed input surface interior.'}
+$hitHandle=[IntPtr]([InputBridge.NativeInput]::WindowAtCursor())
+if([ComputerUse.WindowApi]::GetAncestor($hitHandle,2) -ne $targetHandle){throw 'Input surface is occluded.'}
+if(-not ('System.Windows.Automation.AutomationElement' -as [type])){
+Add-Type -AssemblyName UIAutomationClient
+Add-Type -AssemblyName UIAutomationTypes
+Add-Type -AssemblyName WindowsBase
+}
+${accessibilityHitScript()}
+$surfaceFound=${runtimeId ? '$false' : '$true'};$visited=0
+while($null -ne $pointElement -and $visited -lt 128){
+$visited++;$current=$pointElement.Current
+if(-not $current.IsEnabled -or $current.IsOffscreen){throw 'Input surface hit is unavailable.'}
+if($pointElement.GetCurrentPropertyValue([System.Windows.Automation.AutomationElement]::IsInvokePatternAvailableProperty) -or
+$pointElement.GetCurrentPropertyValue([System.Windows.Automation.AutomationElement]::IsTogglePatternAvailableProperty) -or
+$pointElement.GetCurrentPropertyValue([System.Windows.Automation.AutomationElement]::IsSelectionItemPatternAvailableProperty) -or
+$pointElement.GetCurrentPropertyValue([System.Windows.Automation.AutomationElement]::IsValuePatternAvailableProperty)){
+throw 'Raw input hit an actionable UI control. Use computer_pointer_prepare and computer_pointer_commit.'
+}
+if('${psLiteral(runtimeId || '')}' -ne '' -and ($pointElement.GetRuntimeId() -join '.') -eq '${psLiteral(runtimeId || '')}'){$surfaceFound=$true;break}
+$pointElement=$pointWalker.GetParent($pointElement)
+}
+if(-not $surfaceFound){throw 'Pointer no longer resolves to the observed input surface.'}
+$finalCursor=[InputBridge.NativeInput]::Cursor()
+if($finalCursor[0] -ne $cursor[0] -or $finalCursor[1] -ne $cursor[1]){throw 'Pointer moved during input surface verification.'}
+if([ComputerUse.WindowApi]::GetForegroundWindow().ToInt64().ToString() -ne '${foreground}' -or
+[ComputerUse.WindowApi]::GetAncestor([IntPtr]([InputBridge.NativeInput]::WindowAtCursor()),2) -ne $targetHandle){throw 'Input surface focus or hit changed during verification.'}
+if([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() -ge ${Date.parse(expiresAt)}){throw 'Input surface expired during verification.'}`;
