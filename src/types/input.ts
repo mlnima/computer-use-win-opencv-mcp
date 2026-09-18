@@ -1,4 +1,5 @@
 import type { Bounds, Point } from './geometry';
+import type { Observation } from './perception';
 
 export type MouseButton = 'left' | 'right' | 'middle' | 'x1' | 'x2';
 
@@ -16,6 +17,7 @@ export type PreparedPointer = {
   clientId: string;
   leaseId: string;
   observationId: string;
+  observation: Observation;
   target: Point;
   elementId?: string;
   windowHandle?: string;
@@ -25,6 +27,7 @@ export type PreparedPointer = {
   verification: 'geometry' | 'visual' | 'none';
   windowBounds?: Bounds;
   elementScreenBounds?: Bounds;
+  detectorBacked?: boolean;
   uiaRuntimeId?: string;
   uiaClickablePoint?: boolean;
   uiaRole?: string;

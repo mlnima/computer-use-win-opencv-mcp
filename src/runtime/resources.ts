@@ -8,9 +8,6 @@ const removeResource = (state: RuntimeState, id: string) => {
   if (!state.screenshots.delete(id)) return;
   const observationIds = [...state.observations.values()].filter((value) => value.screenshotId === id).map((value) => value.id);
   for (const observationId of observationIds) state.observations.delete(observationId);
-  for (const [prepareId, prepared] of state.preparedPointers) {
-    if (observationIds.includes(prepared.observationId)) state.preparedPointers.delete(prepareId);
-  }
 };
 
 const pruneResources = (state: RuntimeState) => {

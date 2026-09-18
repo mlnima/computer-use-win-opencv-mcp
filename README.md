@@ -247,7 +247,7 @@ All tools that mutate the visible desktop require an input lease. Call `computer
 7. Call `computer_pointer_commit` with the same lease ID and the one-use prepare ID.
 8. Evaluate the returned post-action frame or call `computer_wait` for the expected result.
 
-Prepared actions are bound to the client and lease, then expire after ten seconds or when the parent observation expires. Before moving to a visual target, prepare compares the target-local pixels saved in the observation with a fresh capture; UI Automation targets use runtime identity and geometry. Commit then rejects a moved cursor, stale identity/geometry, another top-level window covering the target, or excessive local visual change. Verification and input execute within one queue slot. Callers may select `geometry` verification for animated surfaces or `none` only when they deliberately accept the risk.
+Prepared actions are bound to the client and lease. Their validity period uses `COMPUTER_USE_OBSERVATION_TTL_MS` and starts after the hover capture finishes. They retain their verified target evidence independently of the original observation's expiry. Before moving to a visual target, prepare compares the target-local pixels saved in the observation with a fresh capture; UI Automation targets use runtime identity and geometry. Commit then rejects a moved cursor, stale identity/geometry, another top-level window covering the target, or excessive local visual change. Verification and input execute within one queue slot. Callers may select `geometry` verification for animated surfaces or `none` only when they deliberately accept the risk.
 
 ### Accurate drag-and-drop
 

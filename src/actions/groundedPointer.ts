@@ -119,21 +119,33 @@ export const prepareGroundedPointer = async (
       input: await pointerResultNative(state, startedAt, execution)
     };
   }, { deadlineMs: 30_000, owner, signal: owner.signal });
+  const hover = options.hoverScreenshot === false ? undefined : await createObservation(state, {
+    target: observation.window ? 'window' : observation.target === 'region' ? 'region' : 'desktop',
+    windowHandle: observation.window?.handle,
+    bounds: observation.target === 'region' ? observation.bounds : undefined,
+    includeCursor: true,
+    includeAccessibility: false,
+    includeOcr: false,
+    includeOpenCv: false,
+    signal: owner.signal
+  }).catch(() => undefined);
   const now = Date.now();
   const prepared: PreparedPointer = {
     id: newId('prepare'),
     clientId: owner.clientId,
     leaseId: owner.leaseId,
     observationId: observation.id,
+    observation,
     target: target.screen,
     elementId: target.element?.id,
     windowHandle: moved.current?.handle || moved.hit?.handle,
     preparedAt: new Date(now).toISOString(),
-    expiresAt: new Date(Math.min(Date.parse(observation.expiresAt), now + 10_000)).toISOString(),
+    expiresAt: new Date(now + state.config.observationTtlMs).toISOString(),
     imageHash: moved.imageHash,
     verification,
     windowBounds: moved.current?.bounds || moved.hit?.bounds,
     elementScreenBounds,
+    detectorBacked: target.element?.sources.some((source) => source === 'ocr' || source === 'opencv'),
     uiaRuntimeId: target.element?.uiaRuntimeId,
     uiaClickablePoint: target.element?.uiaClickablePoint,
     uiaRole: target.element?.uiaRole,
@@ -145,16 +157,6 @@ export const prepareGroundedPointer = async (
   const lease = state.control.lease;
   if (!lease || lease.id !== owner.leaseId || lease.clientId !== owner.clientId) throw new Error('Input lease ended during pointer preparation.');
   state.preparedPointers.set(prepared.id, prepared);
-  const hover = options.hoverScreenshot === false ? undefined : await createObservation(state, {
-    target: observation.window ? 'window' : observation.target === 'region' ? 'region' : 'desktop',
-    windowHandle: observation.window?.handle,
-    bounds: observation.target === 'region' ? observation.bounds : undefined,
-    includeCursor: true,
-    includeAccessibility: false,
-    includeOcr: false,
-    includeOpenCv: false,
-    signal: owner.signal
-  }).catch(() => undefined);
   recordTrace(state, 'pointer.prepare', {
     prepareId: prepared.id,
     observationId: observation.id,
@@ -182,7 +184,7 @@ export const consumeGroundedPointer = async <T>(
   const prepared = state.preparedPointers.get(prepareId);
   if (!prepared) throw new Error('Pointer preparation was not found or already consumed.');
   assertOwner(prepared, owner);
-  const original = requireObservation(state, prepared.observationId);
+  const original = prepared.observation;
   state.preparedPointers.delete(prepareId);
   if (Date.parse(prepared.expiresAt) <= Date.now()) throw new Error('Pointer preparation expired. Prepare again.');
   return await runInputTransaction(state, async ({ guard, execution }) => {

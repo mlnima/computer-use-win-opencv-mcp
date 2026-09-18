@@ -37,16 +37,10 @@ export const cleanExpiredState = (state: RuntimeState) => {
     if (!state.screenshots.delete(id)) continue;
     const observationIds = [...state.observations.values()].filter((observation) => observation.screenshotId === id).map((observation) => observation.id);
     for (const observationId of observationIds) state.observations.delete(observationId);
-    for (const [prepareId, prepared] of state.preparedPointers) {
-      if (observationIds.includes(prepared.observationId)) state.preparedPointers.delete(prepareId);
-    }
   }
   for (const [id, value] of state.observations) {
     if (Date.parse(value.expiresAt) > now) continue;
     state.observations.delete(id);
-    for (const [prepareId, prepared] of state.preparedPointers) {
-      if (prepared.observationId === id) state.preparedPointers.delete(prepareId);
-    }
   }
   for (const [id, value] of state.preparedPointers) if (Date.parse(value.expiresAt) <= now) state.preparedPointers.delete(id);
   const referenced = new Set([...state.observations.values()].map((value) => value.screenshotId));

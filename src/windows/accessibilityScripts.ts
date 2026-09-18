@@ -3,7 +3,8 @@ import { psLiteral } from './powershell';
 
 const assemblies = `
 Add-Type -AssemblyName UIAutomationClient
-Add-Type -AssemblyName UIAutomationTypes`;
+Add-Type -AssemblyName UIAutomationTypes
+Add-Type -AssemblyName WindowsBase`;
 
 export const accessibilityTreeScript = (handle: string, maxNodes: number, bounds?: Bounds) => {
   const target = bounds || {
