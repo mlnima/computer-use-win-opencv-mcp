@@ -41,6 +41,7 @@ export const targetPoint = (
   input: { elementId?: string; x?: number; y?: number; allowRaw?: boolean }
 ) => {
   const element = input.elementId ? requireElement(observation, input.elementId) : undefined;
+  if (!element && !input.allowRaw) throw new Error('Use a grounded elementId. Screenshot coordinates require allowRaw for an explicitly identified visual surface.');
   if (element && element.confidence < 0.25) throw new Error('Element confidence is too low for physical input.');
   if (element?.id.startsWith('vision:grid:') && !input.allowRaw) throw new Error('Vision grid targets are coarse. Observe this element as a region first, or set allowRaw to accept its center explicitly.');
   if (element?.evidence?.includes('no_unblocked_safe_point') && !input.allowRaw) throw new Error('This element has no verified child-free pointer point. Use computer_accessibility, refine the target, or set allowRaw explicitly.');

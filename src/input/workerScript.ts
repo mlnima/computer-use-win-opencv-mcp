@@ -1,12 +1,16 @@
 import { nativeInputMemberSource } from './nativeSource';
+import { winApiSource } from '../windows/nativeSource';
 
 export const nativeInputSourceBase64 = Buffer.from(nativeInputMemberSource, 'utf8').toString('base64');
+export const nativeWindowSourceBase64 = Buffer.from(winApiSource, 'utf8').toString('base64');
 
 export const inputWorkerScript = String.raw`
 $ErrorActionPreference = 'Stop'
 $source = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($env:COMPUTER_USE_NATIVE_INPUT_SOURCE))
 Add-Type -MemberDefinition $source -Language CSharp -Name NativeInput -Namespace InputBridge -UsingNamespace System.ComponentModel
 [InputBridge.NativeInput]::Initialize()
+$windowSource=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($env:COMPUTER_USE_WINDOW_API_SOURCE))
+Add-Type -MemberDefinition $windowSource -Name WindowApi -Namespace ComputerUse
 [Console]::Out.WriteLine('{"ready":true}')
 [Console]::Out.Flush()
 $heldButtons = @{}
@@ -25,10 +29,14 @@ while (($line = [Console]::In.ReadLine()) -ne $null) {
       'moveAbsolute' { [InputBridge.NativeInput]::MoveAbsolute([int]$command.x, [int]$command.y) }
       'moveRelative' { [InputBridge.NativeInput]::MoveRelative([int]$command.x, [int]$command.y) }
       'button' {
+        if([bool]$command.down -and $command.guard){& ([ScriptBlock]::Create([string]$command.guard)) | Out-Null}
         [InputBridge.NativeInput]::Button([string]$command.button, [bool]$command.down)
         if ([bool]$command.down) { $heldButtons[[string]$command.button] = $true } else { [void]$heldButtons.Remove([string]$command.button) }
       }
-      'wheel' { [InputBridge.NativeInput]::Wheel([int]$command.deltaX, [int]$command.deltaY) }
+      'wheel' {
+        if($command.guard){& ([ScriptBlock]::Create([string]$command.guard)) | Out-Null}
+        [InputBridge.NativeInput]::Wheel([int]$command.deltaX, [int]$command.deltaY)
+      }
       'virtualKey' {
         [InputBridge.NativeInput]::VirtualKey([int]$command.key, [bool]$command.down, [bool]$command.extended)
         $identity = "virtualKey:$($command.key):$($command.extended)"

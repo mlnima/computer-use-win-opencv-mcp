@@ -115,6 +115,11 @@ export const createObservation = async (
   assertObservationActive(state, signal);
   const prepared = await prepareObservationImage(capture.bytes, capture.width, capture.height, state.config);
   assertObservationActive(state, signal);
+  const hash = hashImage(prepared.bytes);
+  const previous = previousScreenshot(state, window?.handle, capture.bounds);
+  const changeRatio = previous && previous.hash !== hash
+    ? await imageDifferenceRatio(previous.bytes, prepared.bytes).catch(() => 1)
+    : previous ? 0 : undefined;
   const [cursor, accessibility] = await Promise.all([
     getCursor(signal).catch(() => ({ x: 0, y: 0 })),
     accessibilityForTarget(
@@ -130,11 +135,12 @@ export const createObservation = async (
   assertObservationActive(state, signal);
   const config = {
     ...state.config,
-    ocrEnabled: options.includeOcr ?? state.config.ocrEnabled,
-    openCvEnabled: options.includeOpenCv ?? state.config.openCvEnabled
+    ocrEnabled: state.config.ocrEnabled && options.includeOcr !== false,
+    openCvEnabled: state.config.openCvEnabled && options.includeOpenCv !== false
   };
   const perception = await analyzeScreenshot({
     bytes: prepared.bytes,
+    imageHash: hash,
     width: prepared.width,
     height: prepared.height,
     captureBounds: capture.bounds,
@@ -148,11 +154,6 @@ export const createObservation = async (
   const id = randomUUID();
   const token = randomUUID();
   const expiresAt = new Date(Date.now() + state.config.observationTtlMs);
-  const hash = hashImage(prepared.bytes);
-  const previous = previousScreenshot(state, window?.handle, capture.bounds);
-  const changeRatio = previous && previous.hash !== hash
-    ? await imageDifferenceRatio(previous.bytes, prepared.bytes).catch(() => 1)
-    : previous ? 0 : undefined;
   assertObservationActive(state, signal);
   const warnings = [...prepared.warnings, accessibility.warning, ...perception.warnings].filter((warning): warning is string => Boolean(warning));
   const overlayBytes = options.includeOverlay

@@ -7,6 +7,7 @@ export type InputEpoch = {
 };
 
 export type InputExecution = InputEpoch & {
+  pointerGuard?: string;
   deadlineAt?: number;
   bypassControl: boolean;
   assertActive: () => void;

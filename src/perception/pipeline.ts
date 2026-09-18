@@ -7,6 +7,7 @@ import { countElementSources, fuseElements } from './fusion';
 import { detectTextElements } from './ocr';
 import { detectVisualElements } from './opencv';
 import { currentPerceptionDeadline } from './deadline';
+import { hashImage } from './hash';
 
 export type PerceptionResult = {
   elements: ScreenElement[];
@@ -17,6 +18,7 @@ export type PerceptionResult = {
 
 type PerceptionInput = {
   bytes: Buffer;
+  imageHash?: string;
   width: number;
   height: number;
   captureBounds: Bounds;
@@ -25,6 +27,12 @@ type PerceptionInput = {
   analysisLevel: 'fast' | 'standard' | 'deep';
   signal?: AbortSignal;
 };
+
+const visualCache = new Map<string, {
+  at: number;
+  ocr: Awaited<ReturnType<typeof detectTextElements>>;
+  opencv: Awaited<ReturnType<typeof detectVisualElements>>;
+}>();
 
 const timed = async <T>(run: () => Promise<T>) => {
   const started = performance.now();
@@ -38,14 +46,23 @@ export const analyzeScreenshot = async (input: PerceptionInput): Promise<Percept
   const accessibilityMs = Math.round((performance.now() - accessibilityStarted) * 10) / 10;
   const stageLimit = Math.max(20, input.config.maxElements * (input.analysisLevel === 'fast' ? 1 : 2));
   const deadlineAt = currentPerceptionDeadline();
+  const key = JSON.stringify([input.imageHash || hashImage(input.bytes), input.width, input.height, stageLimit,
+    input.analysisLevel, input.config.ocrEnabled, input.config.openCvEnabled, input.config.ocrLanguages,
+    input.config.ocrLangPath, input.config.runtimeDir]);
+  const cached = visualCache.get(key);
+  const reusable = cached && Date.now() - cached.at < input.config.observationTtlMs ? cached : undefined;
   const [ocr, opencv] = await Promise.all([
-    input.config.ocrEnabled
+    reusable ? Promise.resolve({ value: reusable.ocr, elapsed: 0 }) : input.config.ocrEnabled
       ? timed(() => detectTextElements(input.bytes, input.config.ocrLanguages, input.width, input.height, stageLimit, input.config.runtimeDir, input.config.ocrLangPath, deadlineAt, input.signal))
       : Promise.resolve({ value: { elements: [], warning: undefined }, elapsed: 0 }),
-    input.config.openCvEnabled
+    reusable ? Promise.resolve({ value: reusable.opencv, elapsed: 0 }) : input.config.openCvEnabled
       ? timed(() => detectVisualElements(input.bytes, stageLimit, deadlineAt, input.analysisLevel, input.signal))
       : Promise.resolve({ value: { elements: [], warning: undefined }, elapsed: 0 })
   ]);
+  if (!reusable && !ocr.value.warning && !opencv.value.warning) {
+    if (visualCache.size >= 4) visualCache.delete(visualCache.keys().next().value!);
+    visualCache.set(key, { at: Date.now(), ocr: ocr.value, opencv: opencv.value });
+  }
   const fusionStarted = performance.now();
   const visionReserve = input.config.visionApiUrl && input.config.visionModel
     ? Math.min(24, Math.floor(input.config.maxElements / 10))

@@ -21,13 +21,13 @@ export type PreparedPointer = {
   target: Point;
   elementId?: string;
   windowHandle?: string;
+  windowProcessId?: number;
   preparedAt: string;
   expiresAt: string;
   imageHash: string;
   verification: 'geometry' | 'visual' | 'none';
   windowBounds?: Bounds;
   elementScreenBounds?: Bounds;
-  detectorBacked?: boolean;
   uiaRuntimeId?: string;
   uiaClickablePoint?: boolean;
   uiaRole?: string;

@@ -21,7 +21,10 @@ export const prepareObservationImage = async (
   config: ServerConfig
 ): Promise<PreparedImage> => {
   const requested = constrainedSize(width, height, config.screenshotMaxSide);
-  let output = await sharp(bytes).resize(requested.width, requested.height, { fit: 'fill' }).png({ compressionLevel: 9, adaptiveFiltering: true }).toBuffer();
+  if (requested.width === width && requested.height === height && bytes.length <= config.screenshotMaxBytes) {
+    return { bytes, width, height, mimeType: 'image/png', warnings: [] };
+  }
+  let output = await sharp(bytes).resize(requested.width, requested.height, { fit: 'fill' }).png({ compressionLevel: 6 }).toBuffer();
   let mimeType: PreparedImage['mimeType'] = 'image/png';
   const warnings: string[] = [];
   if (output.length > config.screenshotMaxBytes) {

@@ -6,7 +6,7 @@ import { compactObservation, imageToScreenBounds, requireElement, requireObserva
 import { createObservation } from '../../observation/create';
 import { withPerceptionDeadline } from '../../perception/deadline';
 import { createObservationOverlay, locateObservation } from '../../observation/locate';
-import { locateEvidenceReasons, selectDiverseElements, selectEvidenceElements } from '../../observation/presentation';
+import { locateEvidenceReasons, observationValue, presentElement, selectDiverseElements, selectEvidenceElements } from '../../observation/presentation';
 import { storeImageResource } from '../../observation/resources';
 import { waitForObservation } from '../../observation/wait';
 import type { Observation } from '../../types/perception';
@@ -29,11 +29,11 @@ const observeSchema = z.object({
   target: z.enum(['foreground', 'window', 'region', 'desktop']).default('foreground'),
   windowHandle: z.string().optional(),
   bounds: boundsSchema.optional(),
-  mode: z.enum(['fast', 'standard', 'deep']).default('standard'),
+  mode: z.enum(['screenshot', 'accessibility', 'fast', 'standard', 'deep']).default('standard'),
   includeCursor: z.boolean().default(false),
   includeOverlay: z.boolean().optional(),
   inlineImage: z.boolean().optional(),
-  elementLimit: z.number().int().min(0).max(500).default(80),
+  elementLimit: z.number().int().min(0).max(500).default(80).describe('0 skips element analysis. Use a positive limit for locate or element-based actions.'),
   regionObservationId: z.string().optional(),
   regionToken: z.string().optional(),
   regionElementId: z.string().optional(),
@@ -71,19 +71,6 @@ const waitSchema = z.object({
   bounds: boundsSchema.optional(),
   timeoutMs: z.number().int().min(100).max(120000).default(15000),
   intervalMs: z.number().int().min(100).max(5000).default(500)
-});
-
-const observationValue = (observation: Awaited<ReturnType<typeof createObservation>>, elements: Observation['elements']) => ({
-  ...compactObservation(observation),
-  screenshotUri: observation.screenshotUri,
-  sceneUri: observation.sceneUri,
-  overlayUri: observation.overlayUri,
-  captureBackend: observation.captureBackend,
-  changeRatio: observation.changeRatio,
-  stageMs: observation.stageMs,
-  elements,
-  returnedElementCount: elements.length,
-  elementSelection: 'priority_source_spatial'
 });
 
 const observeResult = async (
@@ -144,6 +131,7 @@ const locateResult = async (state: RuntimeState, observationId: string, query: s
       }
       const value = {
         ...located,
+        matches: located.matches.map((match) => ({ ...presentElement(match), score: match.score, reasons: match.reasons })),
         serverVision: {
           requested: useVision,
           configured,
@@ -187,14 +175,15 @@ const cropElement = async (state: RuntimeState, observation: Observation, elemen
 
 const registerObserve = (server: McpServer, state: RuntimeState) => server.registerTool('computer_observe', {
   title: 'Observe Windows screen',
-  description: 'Capture a target and return a priority/source/spatially diverse set of snapshot-scoped UI Automation, OCR, and OpenCV elements. Deep mode includes inline Set-of-Mark evidence unless inlineImage is false.',
+  description: 'Capture a target with compact, snapshot-scoped elements. Screenshot mode skips perception; accessibility mode reads native controls; fast adds OpenCV; standard/deep add OCR. Inspect retrieves full element evidence. Screenshot/deep modes include inline images unless disabled.',
   inputSchema: observeSchema,
   annotations: { readOnlyHint: true }
 }, async ({ target, windowHandle, bounds, mode, includeCursor, includeOverlay, inlineImage, elementLimit, regionObservationId, regionToken, regionElementId, regionPadding }, extra) => {
   try {
-    const inline = inlineImage ?? mode === 'deep';
+    const pixelsOnly = mode === 'screenshot' || elementLimit === 0;
+    const inline = inlineImage ?? (mode === 'deep' || pixelsOnly);
     const overlay = includeOverlay ?? mode === 'deep';
-    const profile = mode === 'fast'
+    const profile = mode === 'fast' || mode === 'accessibility' || pixelsOnly
       ? { deadlineMs: 30_000, maxAccessibilityNodes: 400, accessibilityTimeoutMs: 5_000 }
       : mode === 'standard' ? { deadlineMs: 60_000, maxAccessibilityNodes: 1_200, accessibilityTimeoutMs: 15_000 }
         : { deadlineMs: 120_000, maxAccessibilityNodes: state.config.maxElements * 4, accessibilityTimeoutMs: 20_000 };
@@ -217,13 +206,13 @@ const registerObserve = (server: McpServer, state: RuntimeState) => server.regis
         target: source ? 'region' : target,
         windowHandle: source?.window?.handle || windowHandle,
         bounds: regionBounds,
-        analysisLevel: mode,
+        analysisLevel: mode === 'screenshot' || mode === 'accessibility' ? 'fast' : mode,
         maxAccessibilityNodes: profile.maxAccessibilityNodes,
         accessibilityTimeoutMs: profile.accessibilityTimeoutMs,
         includeCursor,
-        includeAccessibility: true,
-        includeOcr: mode !== 'fast',
-        includeOpenCv: true,
+        includeAccessibility: !pixelsOnly,
+        includeOcr: !pixelsOnly && (mode === 'standard' || mode === 'deep'),
+        includeOpenCv: !pixelsOnly && mode !== 'accessibility',
         includeOverlay: overlay && !inline
       });
       return await observeResult(state, observation, elementLimit, inline, overlay);

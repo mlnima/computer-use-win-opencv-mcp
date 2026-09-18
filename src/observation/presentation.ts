@@ -1,7 +1,29 @@
 import type { ElementSource, LocateResult, ScreenElement } from '../types/perception';
+import type { ObservationResult } from './create';
+import { compactObservation } from '../actions/observations';
 
 const sourceWeight = { uia: 10, ocr: 7, opencv: 5, vision: 6 } as const;
 const sourceOrder: ElementSource[] = ['uia', 'ocr', 'opencv', 'vision'];
+
+export const presentElement = (element: ScreenElement) => ({
+  id: element.id, role: element.role, name: element.name, value: element.value,
+  bounds: element.bounds, safePoint: element.safePoint, actions: element.actions,
+  enabled: element.enabled, focused: element.focused, confidence: element.confidence,
+  sources: element.sources
+});
+
+export const observationValue = (observation: ObservationResult, elements: ScreenElement[]) => ({
+  ...compactObservation(observation),
+  screenshotUri: observation.screenshotUri,
+  sceneUri: observation.sceneUri,
+  overlayUri: observation.overlayUri,
+  captureBackend: observation.captureBackend,
+  changeRatio: observation.changeRatio,
+  stageMs: observation.stageMs,
+  elements: elements.map(presentElement),
+  returnedElementCount: elements.length,
+  elementSelection: 'priority_source_spatial'
+});
 
 const elementCell = (element: ScreenElement, width: number, height: number) => {
   const columns = 4;

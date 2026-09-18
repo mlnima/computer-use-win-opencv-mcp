@@ -49,10 +49,10 @@ export const moveRelativeNative = (state: RuntimeState, x: number, y: number, ex
   checked(state, execution, () => getInputWorker(state).command<void>({ op: 'moveRelative', x: Math.round(x), y: Math.round(y) }));
 
 export const buttonNative = (state: RuntimeState, button: MouseButton, down: boolean, execution?: InputExecution) =>
-  checked(state, execution, () => getInputWorker(state).command<void>({ op: 'button', button, down }));
+  checked(state, execution, () => getInputWorker(state).command<void>({ op: 'button', button, down, guard: down ? execution?.pointerGuard : undefined }));
 
 export const wheelNative = (state: RuntimeState, deltaX: number, deltaY: number, execution?: InputExecution) =>
-  checked(state, execution, () => getInputWorker(state).command<void>({ op: 'wheel', deltaX: Math.round(deltaX), deltaY: Math.round(deltaY) }));
+  checked(state, execution, () => getInputWorker(state).command<void>({ op: 'wheel', deltaX: Math.round(deltaX), deltaY: Math.round(deltaY), guard: execution?.pointerGuard }));
 
 export const keyNative = (
   state: RuntimeState,

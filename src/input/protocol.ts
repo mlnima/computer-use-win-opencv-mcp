@@ -10,8 +10,8 @@ export type NativeCommand =
   | { op: 'probe' }
   | { op: 'moveAbsolute'; x: number; y: number }
   | { op: 'moveRelative'; x: number; y: number }
-  | { op: 'button'; button: MouseButton; down: boolean }
-  | { op: 'wheel'; deltaX: number; deltaY: number }
+  | { op: 'button'; button: MouseButton; down: boolean; guard?: string }
+  | { op: 'wheel'; deltaX: number; deltaY: number; guard?: string }
   | { op: 'virtualKey'; key: number; down: boolean; extended: boolean }
   | { op: 'scanCode'; scan: number; down: boolean; extended: boolean }
   | { op: 'mappedScanCode'; key: number; down: boolean; extended: boolean }

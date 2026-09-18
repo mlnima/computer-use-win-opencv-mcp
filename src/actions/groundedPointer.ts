@@ -12,7 +12,7 @@ import { newId, recordTrace } from '../runtime/state';
 import { focusWindow, getWindow } from '../windows/windows';
 import { compactObservation, requireObservation, targetPoint } from './observations';
 import { captureObservationSample, storedObservationSample, targetVisualRegion, verifyVisualSamples } from './visualVerification';
-import { verifyPointerElement, verifyPointerHit, verifyPointerWindow } from './pointerVerification';
+import { pointerGuardScript, verifyPointerElement, verifyPointerHit, verifyPointerWindow } from './pointerVerification';
 export type PointerOwner = { clientId: string; leaseId: string; signal?: AbortSignal };
 export type PreparePointerOptions = {
   observationId: string;
@@ -139,13 +139,13 @@ export const prepareGroundedPointer = async (
     target: target.screen,
     elementId: target.element?.id,
     windowHandle: moved.current?.handle || moved.hit?.handle,
+    windowProcessId: moved.current?.processId || moved.hit?.processId,
     preparedAt: new Date(now).toISOString(),
     expiresAt: new Date(now + state.config.observationTtlMs).toISOString(),
     imageHash: moved.imageHash,
     verification,
     windowBounds: moved.current?.bounds || moved.hit?.bounds,
     elementScreenBounds,
-    detectorBacked: target.element?.sources.some((source) => source === 'ocr' || source === 'opencv'),
     uiaRuntimeId: target.element?.uiaRuntimeId,
     uiaClickablePoint: target.element?.uiaClickablePoint,
     uiaRole: target.element?.uiaRole,
@@ -208,6 +208,7 @@ export const consumeGroundedPointer = async <T>(
     }
     guard();
     if (Date.parse(prepared.expiresAt) <= Date.now()) throw new Error('Pointer preparation expired during commit verification.');
+    execution.pointerGuard = pointerGuardScript(prepared);
     const result = await operation(prepared, execution);
     guard();
     return { prepared, original, hitWindow, visualDifference, result };

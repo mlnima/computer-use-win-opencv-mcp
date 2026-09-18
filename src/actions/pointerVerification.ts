@@ -2,6 +2,7 @@ import type { PreparedPointer } from '../types/input';
 import { pointInBounds } from '../types/geometry';
 import { getAccessibilityElement } from '../windows/accessibility';
 import { getWindow, windowFromPoint } from '../windows/windows';
+import { psLiteral } from '../windows/powershell';
 
 const sameBounds = (first: NonNullable<PreparedPointer['windowBounds']>, second: NonNullable<PreparedPointer['windowBounds']>) =>
   first.left === second.left && first.top === second.top && first.right === second.right && first.bottom === second.bottom;
@@ -45,4 +46,57 @@ export const verifyPointerHit = async (prepared: Pick<PreparedPointer, 'windowHa
   if (!hit) throw new Error('The target window could not be verified at the prepared point.');
   if (hit.handle !== prepared.windowHandle) throw new Error(`Prepared point is occluded by ${hit.title || hit.handle}.`);
   return hit;
+};
+
+export const pointerGuardScript = (prepared: PreparedPointer) => {
+  const bounds = prepared.windowBounds;
+  const elementBounds = prepared.elementScreenBounds;
+  return `
+if([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() -ge ${Date.parse(prepared.expiresAt)}){throw 'Prepared pointer expired before native input.'}
+$targetHandle=[IntPtr]([Int64]'${prepared.windowHandle || '0'}')
+${prepared.uiaRuntimeId && elementBounds ? `
+if(-not ('System.Windows.Automation.AutomationElement' -as [type])){
+Add-Type -AssemblyName UIAutomationClient
+Add-Type -AssemblyName UIAutomationTypes
+Add-Type -AssemblyName WindowsBase
+}
+$wanted='${psLiteral(prepared.uiaRuntimeId)}'
+$element=[System.Windows.Automation.AutomationElement]::FromPoint([System.Windows.Point]::new(${prepared.target.x},${prepared.target.y}))
+$walker=[System.Windows.Automation.TreeWalker]::RawViewWalker;$found=$false;$visited=0
+while($null -ne $element -and $visited -lt 128){
+$visited++
+if(($element.GetRuntimeId() -join '.') -eq $wanted){$found=$true;break}
+$hitType=$element.Current.ControlType
+if($hitType -ne [System.Windows.Automation.ControlType]::Text -and $hitType -ne [System.Windows.Automation.ControlType]::Image){
+if($element.GetCurrentPropertyValue([System.Windows.Automation.AutomationElement]::IsInvokePatternAvailableProperty) -or
+$element.GetCurrentPropertyValue([System.Windows.Automation.AutomationElement]::IsTogglePatternAvailableProperty) -or
+$element.GetCurrentPropertyValue([System.Windows.Automation.AutomationElement]::IsSelectionItemPatternAvailableProperty)){break}
+}
+$element=$walker.GetParent($element)
+}
+if(-not $found){throw 'Native hit test no longer resolves to the prepared control.'}
+$current=$element.Current;$rect=$current.BoundingRectangle
+if(-not $current.IsEnabled -or $current.IsOffscreen){throw 'Prepared control is unavailable.'}
+if([Math]::Abs($rect.Left-${elementBounds.left}) -gt 3 -or [Math]::Abs($rect.Top-${elementBounds.top}) -gt 3 -or
+[Math]::Abs($rect.Right-${elementBounds.right}) -gt 3 -or [Math]::Abs($rect.Bottom-${elementBounds.bottom}) -gt 3){throw 'Prepared control geometry changed.'}
+$value='';$pattern=$null
+if($element.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern,[ref]$pattern)){$value=[string]$pattern.Current.Value}
+if($current.ControlType.ProgrammaticName.Replace('ControlType.','') -cne '${psLiteral(prepared.uiaRole || '')}' -or
+[string]$current.Name -cne '${psLiteral(prepared.uiaName || '')}' -or $value -cne '${psLiteral(prepared.uiaValue || '')}'){
+throw 'Prepared control identity changed before native input.'
+}` : ''}
+${bounds ? `
+$rect=New-Object ComputerUse.WindowApi+RECT
+if(-not [ComputerUse.WindowApi]::GetVisualWindowRect($targetHandle,[ref]$rect) -or
+$rect.Left -ne ${bounds.left} -or $rect.Top -ne ${bounds.top} -or $rect.Right -ne ${bounds.right} -or $rect.Bottom -ne ${bounds.bottom}){
+throw 'Prepared window geometry changed before native input.'
+}
+if([ComputerUse.WindowApi]::IsIconic($targetHandle) -or -not [ComputerUse.WindowApi]::IsWindowVisible($targetHandle)){throw 'Prepared window is unavailable.'}
+$targetProcess=[uint32]0
+[ComputerUse.WindowApi]::GetWindowThreadProcessId($targetHandle,[ref]$targetProcess) | Out-Null
+if($targetProcess -ne ${prepared.windowProcessId || 0}){throw 'Prepared window process changed.'}` : ''}
+$cursor=[InputBridge.NativeInput]::Cursor()
+if([Math]::Abs($cursor[0]-${prepared.target.x}) -gt 2 -or [Math]::Abs($cursor[1]-${prepared.target.y}) -gt 2){throw 'Pointer moved before native input.'}
+if([InputBridge.NativeInput]::WindowAtCursor() -ne $targetHandle){throw 'Prepared point is occluded before native input.'}
+if([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() -ge ${Date.parse(prepared.expiresAt)}){throw 'Prepared pointer expired during native verification.'}`;
 };
