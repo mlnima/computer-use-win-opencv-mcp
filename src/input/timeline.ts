@@ -128,6 +128,7 @@ export const runInputTimeline = (state: RuntimeState, options: TimelineOptions, 
   await probeNative(state, execution);
   const startedAt = performance.now();
   const moveTasks: Promise<void>[] = [];
+  let moveEndAt = 0;
   const failures: Error[] = [];
   let maximumLatenessMs = 0;
   let released = { buttons: 0, keys: 0 };
@@ -136,12 +137,13 @@ export const runInputTimeline = (state: RuntimeState, options: TimelineOptions, 
   try {
     for (const item of ordered) {
       await waitUntil(startedAt + item.event.at, execution);
-      if (item.event.type === 'move' && moveTasks.length) {
+      if (moveTasks.length && (item.event.type === 'move' || item.event.at >= moveEndAt)) {
         await Promise.all(moveTasks.splice(0));
         if (failures.length) throw failures[0];
       }
       maximumLatenessMs = Math.max(maximumLatenessMs, performance.now() - startedAt - item.event.at);
       if (item.event.type === 'move' && (item.event.duration ?? 0) > 0) {
+        moveEndAt = item.event.at + item.event.duration!;
         const task = dispatchEvent(state, item.event, options.keyMethod || 'scan-code', execution)
           .catch((error: unknown) => {
             const failure = error instanceof Error ? error : new Error(String(error));
