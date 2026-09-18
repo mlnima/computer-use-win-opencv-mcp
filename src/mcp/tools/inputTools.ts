@@ -88,7 +88,7 @@ const registerPreparedPointer = (server: McpServer, state: RuntimeState, clientI
   }, ({ leaseId, ...options }, extra) => runTool(async () => {
     const lease = await assertControl(state, clientId, leaseId);
     return await prepareGroundedPointer(state, options, { clientId, leaseId: lease.id, signal: extra.signal });
-  }));
+  }, state));
   server.registerTool('computer_pointer_commit', {
     title: 'Commit verified pointer action',
     description: 'Consume a short-lived prepared target for click, multi-click, alternate-button click, or scrolling.',
@@ -97,12 +97,12 @@ const registerPreparedPointer = (server: McpServer, state: RuntimeState, clientI
   }, ({ leaseId, ...options }, extra) => runTool(async () => {
     const lease = await assertControl(state, clientId, leaseId);
     return await commitGroundedPointer(state, options, { clientId, leaseId: lease.id, signal: extra.signal });
-  }));
+  }, state));
 };
 
 const registerRawPointer = (server: McpServer, state: RuntimeState, clientId: string) => server.registerTool('computer_pointer', {
   title: 'Direct and relative pointer input',
-  description: 'Move, click, hold/release buttons, or scroll using physical screen coordinates or relative deltas for 3D/game control.',
+  description: 'Unverified physical or relative input for explicit canvas coordinates and 3D/game control. Use prepare/commit for UI controls. Never bypass a rejected grounded action with this tool.',
   inputSchema: rawPointerSchema,
   annotations: { readOnlyHint: false, destructiveHint: true }
 }, ({ leaseId, action, x, y, relative, durationMs, steps, button, mode, count, intervalMs, deltaX, deltaY }, extra) => runTool(async () => {

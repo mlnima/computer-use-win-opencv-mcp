@@ -1,4 +1,5 @@
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import type { RuntimeState } from '../types/runtime';
 
 const serialize = (value: unknown) => JSON.stringify(value, (_, item) => typeof item === 'bigint' ? item.toString() : item);
 
@@ -15,9 +16,15 @@ export const toolError = (error: unknown): CallToolResult => ({
   isError: true
 });
 
-export const runTool = async (operation: () => Promise<unknown> | unknown): Promise<CallToolResult> => {
+export const runTool = async (operation: () => Promise<unknown> | unknown, state?: RuntimeState): Promise<CallToolResult> => {
   try {
-    return toolResult(await operation());
+    const value = await operation();
+    const result = toolResult(value);
+    const evidence = value as { post?: { screenshotId?: string }; hover?: { screenshotId?: string } } | undefined;
+    const screenshotId = evidence?.post?.screenshotId || evidence?.hover?.screenshotId;
+    const screenshot = screenshotId ? state?.screenshots.get(screenshotId) : undefined;
+    if (screenshot) result.content.push({ type: 'image', data: screenshot.bytes.toString('base64'), mimeType: screenshot.mimeType });
+    return result;
   } catch (error) {
     return toolError(error);
   }

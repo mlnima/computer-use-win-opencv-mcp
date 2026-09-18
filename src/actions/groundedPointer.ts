@@ -22,7 +22,7 @@ export type PreparePointerOptions = {
   y?: number;
   allowRaw?: boolean;
   durationMs?: number;
-  verification?: 'geometry' | 'visual' | 'none';
+  verification?: 'visual';
   hoverScreenshot?: boolean;
 };
 export type CommitPointerOptions = {
@@ -53,7 +53,6 @@ const actionButton = (action: CommitPointerOptions['action']): MouseButton => {
 };
 const actionCount = (action: CommitPointerOptions['action']) => action === 'doubleClick' ? 2 : action === 'tripleClick' ? 3 : 1;
 const verifyVisualState = async (state: RuntimeState, prepared: PreparedPointer, observation: Observation, execution: InputExecution) => {
-  if (prepared.verification !== 'visual') return undefined;
   if (!prepared.visualBounds || !prepared.visualSample) throw new Error('Prepared local visual signature is unavailable.');
   const current = await captureObservationSample(state, observation, prepared.visualBounds, execution.signal);
   return verifyVisualSamples(state, prepared.visualSample, current, 'Target-local visual state changed after preparation');
@@ -90,9 +89,7 @@ export const prepareGroundedPointer = async (
   const elementScreenBounds = target.element ? toScreenBounds(observation, target.element.bounds) : undefined;
   const region = targetVisualRegion(target.screen, elementScreenBounds);
   const verification = options.verification || 'visual';
-  const originalVisualSample = verification === 'visual'
-    ? await storedObservationSample(state, observation, region, owner.signal)
-    : undefined;
+  const originalVisualSample = await storedObservationSample(state, observation, region, owner.signal);
   const moved = await runInputTransaction(state, async ({ guard, execution }) => {
     const startedAt = performance.now();
     if (Date.parse(observation.expiresAt) <= Date.now()) throw new Error('Observation expired before pointer preparation.');
@@ -100,15 +97,12 @@ export const prepareGroundedPointer = async (
     if (observation.window && (!current || !sameBounds(current.bounds, observation.window.bounds))) throw new Error('Target window geometry is stale.');
     if (current) await focusWindow(current.handle, execution.signal);
     guard();
-    const snapshotDifference = originalVisualSample
-      ? verifyVisualSamples(state, originalVisualSample, await captureObservationSample(state, observation, region, execution.signal), 'Observed target changed before pointer preparation')
-      : undefined;
+    const snapshotDifference = verifyVisualSamples(state, originalVisualSample, await captureObservationSample(state, observation, region, execution.signal), 'Observed target changed before pointer preparation');
     await movePointerNative(state, { ...target.screen, durationMs: options.durationMs ?? 180 }, execution);
     const hit = await verifyPointerHit({ windowHandle: current?.handle, target: target.screen }, execution.signal);
     if (!hit) throw new Error('No top-level window exists at the prepared point.');
-    let visualSample: Buffer | undefined;
     const imageHash = state.screenshots.get(observation.screenshotId)?.hash || '';
-    if (verification === 'visual') visualSample = await captureObservationSample(state, observation, region, execution.signal);
+    const visualSample = await captureObservationSample(state, observation, region, execution.signal);
     guard();
     return {
       current,
@@ -128,7 +122,7 @@ export const prepareGroundedPointer = async (
     includeOcr: false,
     includeOpenCv: false,
     signal: owner.signal
-  }).catch(() => undefined);
+  });
   const now = Date.now();
   const prepared: PreparedPointer = {
     id: newId('prepare'),
@@ -236,6 +230,7 @@ export const commitGroundedPointer = async (
     visualDifference: committed.visualDifference,
     durationMs: committed.result.durationMs
   });
+  let postObservationError: string | undefined;
   const post = options.observeAfter === false ? undefined : await createObservation(state, {
     target: committed.original.window ? 'window' : committed.original.target === 'region' ? 'region' : 'desktop',
     windowHandle: committed.original.window?.handle,
@@ -244,9 +239,11 @@ export const commitGroundedPointer = async (
     includeOcr: false,
     includeOpenCv: false,
     signal: owner.signal
-  }).catch(() => undefined);
+  }).catch((error) => { postObservationError = error instanceof Error ? error.message : String(error); return undefined; });
   return {
     consumedPrepareId: committed.prepared.id,
+    inputExecuted: true,
+    postObservationError,
     input: committed.result,
     hitWindow: committed.hitWindow,
     visualDifference: committed.visualDifference,

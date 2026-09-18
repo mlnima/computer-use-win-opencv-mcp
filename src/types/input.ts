@@ -25,7 +25,7 @@ export type PreparedPointer = {
   preparedAt: string;
   expiresAt: string;
   imageHash: string;
-  verification: 'geometry' | 'visual' | 'none';
+  verification: 'visual';
   windowBounds?: Bounds;
   elementScreenBounds?: Bounds;
   uiaRuntimeId?: string;

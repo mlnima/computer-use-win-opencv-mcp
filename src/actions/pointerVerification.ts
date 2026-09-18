@@ -97,6 +97,7 @@ $targetProcess=[uint32]0
 if($targetProcess -ne ${prepared.windowProcessId || 0}){throw 'Prepared window process changed.'}` : ''}
 $cursor=[InputBridge.NativeInput]::Cursor()
 if([Math]::Abs($cursor[0]-${prepared.target.x}) -gt 2 -or [Math]::Abs($cursor[1]-${prepared.target.y}) -gt 2){throw 'Pointer moved before native input.'}
-if([InputBridge.NativeInput]::WindowAtCursor() -ne $targetHandle){throw 'Prepared point is occluded before native input.'}
+$hitHandle=[IntPtr]([InputBridge.NativeInput]::WindowAtCursor())
+if([ComputerUse.WindowApi]::GetAncestor($hitHandle,2) -ne $targetHandle){throw 'Prepared point is occluded before native input.'}
 if([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() -ge ${Date.parse(prepared.expiresAt)}){throw 'Prepared pointer expired during native verification.'}`;
 };

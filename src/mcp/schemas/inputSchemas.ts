@@ -7,14 +7,14 @@ const pointTarget = {
   elementId: z.string().optional(),
   x: z.number().optional(),
   y: z.number().optional(),
-  allowRaw: z.boolean().default(false)
+  allowRaw: z.boolean().default(false).describe('Only for explicitly identified visual surfaces or canvas coordinates. Never use to bypass a rejected control target.')
 };
 
 export const preparePointerSchema = z.object({
   ...pointTarget,
   ...lease,
   durationMs: z.number().int().min(0).max(10000).default(180),
-  verification: z.enum(['geometry', 'visual', 'none']).default('visual'),
+  verification: z.literal('visual').default('visual'),
   hoverScreenshot: z.boolean().default(true)
 });
 
