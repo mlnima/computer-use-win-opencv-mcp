@@ -1,6 +1,5 @@
 import { setTimeout as sleep } from 'node:timers/promises';
 import type { Bounds, Point, WindowInfo } from '../types/geometry';
-import { winApiSource } from './nativeSource';
 import { normalizePowerShellArray, psLiteral, runPowerShell, runPowerShellJson } from './powershell';
 import { toWindow, validBounds } from './values';
 
@@ -44,7 +43,6 @@ const loadCaptureModule = async (): Promise<CaptureModule | null> => {
 
 const listPowerShellWindows = async () => {
   const raw = await runPowerShellJson<Record<string, unknown> | Record<string, unknown>[]>(`
-Add-Type -MemberDefinition '${psLiteral(winApiSource)}' -Name WindowApi -Namespace ComputerUse
 [ComputerUse.WindowApi]::SetProcessDpiAwarenessContext([IntPtr](-4)) | Out-Null
 $foreground=[ComputerUse.WindowApi]::GetForegroundWindow()
 $processes=@{};Get-Process | ForEach-Object {$processes[$_.Id]=$_.ProcessName}
@@ -114,7 +112,6 @@ export const listWindows = async (signal?: AbortSignal, refresh = false): Promis
 export const getWindow = async (handle: string, signal?: AbortSignal): Promise<WindowInfo | null> => {
   if (!/^\d+$/.test(handle)) throw new Error(`Invalid window handle: ${handle}`);
   const raw = await runPowerShellJson<Record<string, unknown> | null>(`
-Add-Type -MemberDefinition '${psLiteral(winApiSource)}' -Name WindowApi -Namespace ComputerUse
 [ComputerUse.WindowApi]::SetProcessDpiAwarenessContext([IntPtr](-4)) | Out-Null
 $handle=[IntPtr]([Int64]'${handle}')
 if(-not [ComputerUse.WindowApi]::IsWindow($handle)){return}
@@ -137,7 +134,6 @@ export const foregroundWindow = async (signal?: AbortSignal): Promise<WindowInfo
 
 export const getCursor = async (signal?: AbortSignal): Promise<Point> =>
   await runPowerShellJson<Point>(`
-Add-Type -MemberDefinition '${psLiteral(winApiSource)}' -Name WindowApi -Namespace ComputerUse
 [ComputerUse.WindowApi]::SetProcessDpiAwarenessContext([IntPtr](-4)) | Out-Null
 $point=New-Object ComputerUse.WindowApi+POINT
 if(-not [ComputerUse.WindowApi]::GetCursorPos([ref]$point)){throw 'GetCursorPos failed.'}
@@ -145,13 +141,11 @@ if(-not [ComputerUse.WindowApi]::GetCursorPos([ref]$point)){throw 'GetCursorPos 
 
 export const foregroundHandle = async (signal?: AbortSignal) =>
   await runPowerShell(`
-Add-Type -MemberDefinition '${psLiteral(winApiSource)}' -Name WindowApi -Namespace ComputerUse
 [ComputerUse.WindowApi]::GetForegroundWindow().ToInt64().ToString()`, 12_000, signal);
 
 export const focusWindow = async (handle: string, signal?: AbortSignal): Promise<void> => {
   if (!/^\d+$/.test(handle)) throw new Error(`Invalid window handle: ${handle}`);
   await runPowerShell(`
-Add-Type -MemberDefinition '${psLiteral(winApiSource)}' -Name WindowApi -Namespace ComputerUse
 $target=[IntPtr]([Int64]'${handle}')
 $foreground=[ComputerUse.WindowApi]::GetForegroundWindow()
 if($foreground -eq $target){return}
@@ -203,7 +197,6 @@ export const controlWindow = async (handle: string, action: WindowControlAction,
   if (action === 'focus') return await focusWindow(handle, signal);
   const requested = action === 'move' || action === 'resize' ? validateControlBounds(bounds) : undefined;
   await runPowerShell(`
-Add-Type -MemberDefinition '${psLiteral(winApiSource)}' -Name WindowApi -Namespace ComputerUse
 $handle=[IntPtr]([Int64]'${handle}')
 if(-not [ComputerUse.WindowApi]::IsWindow($handle)){throw 'Window not found.'}
 $action='${action}'
@@ -226,7 +219,6 @@ if(-not [ComputerUse.WindowApi]::MoveWindow($handle,$x,$y,$width,$height,$true))
 export const windowFromPoint = async (point: Point, signal?: AbortSignal): Promise<WindowInfo | null> => {
   if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) throw new Error('Point coordinates must be finite.');
   const raw = await runPowerShellJson<Record<string, unknown> | null>(`
-Add-Type -MemberDefinition '${psLiteral(winApiSource)}' -Name WindowApi -Namespace ComputerUse
 [ComputerUse.WindowApi]::SetProcessDpiAwarenessContext([IntPtr](-4)) | Out-Null
 $point=New-Object ComputerUse.WindowApi+POINT;$point.X=${Math.round(point.x)};$point.Y=${Math.round(point.y)}
 $handle=[ComputerUse.WindowApi]::WindowFromPoint($point)

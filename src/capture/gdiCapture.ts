@@ -12,8 +12,7 @@ export const captureGdi = async (bounds: Bounds, includeCursor: boolean, signal?
   const encodedFile = Buffer.from(file, 'utf8').toString('base64');
   try {
     await runPowerShell(`
-Add-Type -MemberDefinition '[DllImport("user32.dll")] public static extern bool SetProcessDpiAwarenessContext(System.IntPtr value);' -Name DpiApi -Namespace ComputerUse
-[ComputerUse.DpiApi]::SetProcessDpiAwarenessContext([IntPtr](-4)) | Out-Null
+[ComputerUse.WindowApi]::SetProcessDpiAwarenessContext([IntPtr](-4)) | Out-Null
 Add-Type -AssemblyName System.Drawing
 Add-Type -AssemblyName System.Windows.Forms
 $file=[System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encodedFile}'))

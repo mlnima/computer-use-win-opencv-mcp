@@ -68,7 +68,8 @@ export const getAccessibility = async (
     accessibilityTreeScript(handle, limit, targetBounds),
     [],
     Math.max(1, Math.min(20_000, timeoutMs)),
-    signal
+    signal,
+    'accessibility'
   );
   return attachChildren(normalizePowerShellArray(raw).map(toNode).filter((node) =>
     node.runtimeId && validBounds(node.bounds)));
@@ -77,7 +78,7 @@ export const getAccessibility = async (
 export const getAccessibilityElement = async (handle: string, runtimeId: string, signal?: AbortSignal, point?: Point): Promise<AccessibilityNode | null> => {
   if (!/^\d+$/.test(handle)) throw new Error(`Invalid window handle: ${handle}`);
   if (!/^-?\d+(\.-?\d+)*$/.test(runtimeId)) throw new Error(`Invalid UI Automation runtime ID: ${runtimeId}`);
-  const raw = await runPowerShellJson<Record<string, unknown> | null>(accessibilityElementScript(handle, runtimeId, point), null, 20_000, signal);
+  const raw = await runPowerShellJson<Record<string, unknown> | null>(accessibilityElementScript(handle, runtimeId, point), null, 20_000, signal, 'accessibility');
   return raw ? toNode(raw) : null;
 };
 
@@ -96,6 +97,7 @@ export const performAccessibilityAction = async (
     accessibilityActionScript(handle, runtimeId, action, value),
     null,
     20_000,
-    signal
+    signal,
+    'accessibility'
   );
 };

@@ -2,9 +2,34 @@ import type { Bounds, Point } from '../types/geometry';
 import { psLiteral } from './powershell';
 
 const assemblies = `
+if(-not ('System.Windows.Automation.AutomationElement' -as [type])){
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
-Add-Type -AssemblyName WindowsBase`;
+Add-Type -AssemblyName WindowsBase
+}
+if($null -eq $global:ComputerUseElements){$global:ComputerUseElements=[ordered]@{}}`;
+
+const resolveElement = (handle: string, runtimeId: string) => `
+$root=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]([Int64]'${handle}'))
+if($null -eq $root){throw 'UI Automation root is unavailable.'}
+$wanted='${psLiteral(runtimeId)}';$walker=[System.Windows.Automation.TreeWalker]::ControlViewWalker
+$elements=$global:ComputerUseElements['${handle}']
+$element=$(if($null -ne $elements){$elements[$wanted]}else{$null})
+if($null -ne $element){
+try {if(($element.GetRuntimeId() -join '.') -ne $wanted){$element=$null}} catch {$element=$null}
+}
+if($null -eq $element){
+$queue=[System.Collections.Generic.Queue[object]]::new();$queue.Enqueue($root);$visited=0
+while($queue.Count -gt 0 -and $null -eq $element -and $visited -lt 30000){
+$candidate=$queue.Dequeue();$visited++
+try {
+if(($candidate.GetRuntimeId() -join '.') -eq $wanted){$element=$candidate;break}
+$child=$walker.GetFirstChild($candidate)
+while($null -ne $child -and ($visited+$queue.Count) -lt 30000){$queue.Enqueue($child);$child=$walker.GetNextSibling($child)}
+} catch {}
+}
+}
+if($null -ne $element -and $null -ne $elements){$elements[$wanted]=$element}`;
 
 export const accessibilityTreeScript = (handle: string, maxNodes: number, bounds?: Bounds) => {
   const target = bounds || {
@@ -16,6 +41,9 @@ export const accessibilityTreeScript = (handle: string, maxNodes: number, bounds
   return `${assemblies}
 $root=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]([Int64]'${handle}'))
 if($null -eq $root){throw 'UI Automation root is unavailable.'}
+$global:ComputerUseElements.Remove('${handle}')
+if($global:ComputerUseElements.Count -ge 16){$global:ComputerUseElements.RemoveAt(0)}
+$global:ComputerUseElements['${handle}']=@{}
 $cache=[System.Windows.Automation.CacheRequest]::new()
 $cache.AutomationElementMode=[System.Windows.Automation.AutomationElementMode]::Full
 $cache.TreeFilter=[System.Windows.Automation.Automation]::ControlViewCondition
@@ -64,6 +92,7 @@ $rect=Get-CachedValue $element ([System.Windows.Automation.AutomationElement]::B
 if($null -eq $rect){continue}
 if($rect.IsEmpty -or $rect.Width -lt 1 -or $rect.Height -lt 1){continue}
 if($rect.Right -le ${Math.round(target.left)} -or $rect.Left -ge ${Math.round(target.right)} -or $rect.Bottom -le ${Math.round(target.top)} -or $rect.Top -ge ${Math.round(target.bottom)}){continue}
+$global:ComputerUseElements['${handle}'][$runtimeId]=$element
 $enabled=[bool](Get-CachedValue $element ([System.Windows.Automation.AutomationElement]::IsEnabledProperty))
 $focusable=[bool](Get-CachedValue $element ([System.Windows.Automation.AutomationElement]::IsKeyboardFocusableProperty))
 $clickable=Get-CachedValue $element ([System.Windows.Automation.AutomationElement]::ClickablePointProperty)
@@ -94,19 +123,7 @@ $items.ToArray() | ConvertTo-Json -Depth 6 -Compress`;
 };
 
 export const accessibilityElementScript = (handle: string, runtimeId: string, point?: Point) => `${assemblies}
-$root=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]([Int64]'${handle}'))
-if($null -eq $root){throw 'UI Automation root is unavailable.'}
-$wanted='${psLiteral(runtimeId)}';$walker=[System.Windows.Automation.TreeWalker]::ControlViewWalker
-$queue=[System.Collections.Generic.Queue[object]]::new();$queue.Enqueue($root)
-$element=$null;$visited=0
-while($queue.Count -gt 0 -and $null -eq $element -and $visited -lt 30000){
-$candidate=$queue.Dequeue();$visited++
-try {
-if(($candidate.GetRuntimeId() -join '.') -eq $wanted){$element=$candidate;break}
-$child=$walker.GetFirstChild($candidate)
-while($null -ne $child){$queue.Enqueue($child);$child=$walker.GetNextSibling($child)}
-} catch {}
-}
+${resolveElement(handle, runtimeId)}
 if($null -eq $element){return}
 $current=$element.Current;$rect=$current.BoundingRectangle
 $clickable=New-Object System.Windows.Point;$hasClickable=$element.TryGetClickablePoint([ref]$clickable)
@@ -120,6 +137,12 @@ while($null -ne $ancestor -and $ancestorCount -lt 128){
 $ancestorCount++;$ancestorId=($ancestor.GetRuntimeId() -join '.')
 if($ancestorId){$pointerAncestors.Add($ancestorId)}
 if($ancestorId -eq $wanted -or $ancestorId -eq $rootId){break}
+$hitType=$ancestor.Current.ControlType
+if($hitType -ne [System.Windows.Automation.ControlType]::Text -and $hitType -ne [System.Windows.Automation.ControlType]::Image){
+if($ancestor.GetCurrentPropertyValue([System.Windows.Automation.AutomationElement]::IsInvokePatternAvailableProperty) -or
+$ancestor.GetCurrentPropertyValue([System.Windows.Automation.AutomationElement]::IsTogglePatternAvailableProperty) -or
+$ancestor.GetCurrentPropertyValue([System.Windows.Automation.AutomationElement]::IsSelectionItemPatternAvailableProperty)){break}
+}
 $ancestor=$pointWalker.GetParent($ancestor)
 }` : ''}
 [PSCustomObject]@{
@@ -133,21 +156,9 @@ pointerAncestors=@($pointerAncestors)
 export const accessibilityActionScript = (handle: string, runtimeId: string, action: string, value: string) => {
   const encodedValue = Buffer.from(value, 'utf8').toString('base64');
   return `${assemblies}
-$root=[System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]([Int64]'${handle}'))
-if($null -eq $root){throw 'UI Automation root is unavailable.'}
-$wanted='${psLiteral(runtimeId)}';$action='${psLiteral(action)}'
+${resolveElement(handle, runtimeId)}
+$action='${psLiteral(action)}'
 $value=[System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encodedValue}'))
-$walker=[System.Windows.Automation.TreeWalker]::ControlViewWalker
-$queue=[System.Collections.Generic.Queue[object]]::new();$queue.Enqueue($root)
-$element=$null;$visited=0
-while($queue.Count -gt 0 -and $null -eq $element -and $visited -lt 30000){
-$candidate=$queue.Dequeue();$visited++
-try {
-if(($candidate.GetRuntimeId() -join '.') -eq $wanted){$element=$candidate;break}
-$child=$walker.GetFirstChild($candidate)
-while($null -ne $child){$queue.Enqueue($child);$child=$walker.GetNextSibling($child)}
-} catch {}
-}
 if($null -eq $element){throw 'UI Automation element is stale or unavailable.'}
 $pattern=$null;$performed=$false;$used=''
 if($action -eq 'focus'){$element.SetFocus();$performed=$true;$used='SetFocus'}

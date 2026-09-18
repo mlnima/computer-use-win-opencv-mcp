@@ -1,6 +1,5 @@
 import type { MonitorInfo } from '../types/geometry';
-import { winApiSource } from './nativeSource';
-import { normalizePowerShellArray, psLiteral, runPowerShellJson } from './powershell';
+import { normalizePowerShellArray, runPowerShellJson } from './powershell';
 import { toMonitor, validBounds } from './values';
 
 let monitorCache: { at: number; monitors: MonitorInfo[] } | undefined;
@@ -26,7 +25,6 @@ const awaitSignal = async <T>(operation: Promise<T>, signal?: AbortSignal): Prom
 const enumerateMonitors = async (): Promise<MonitorInfo[]> => {
   const raw = await runPowerShellJson<Record<string, unknown> | Record<string, unknown>[]>(`
 Add-Type -AssemblyName System.Windows.Forms
-Add-Type -MemberDefinition '${psLiteral(winApiSource)}' -Name WindowApi -Namespace ComputerUse
 [ComputerUse.WindowApi]::SetProcessDpiAwarenessContext([IntPtr](-4)) | Out-Null
 [System.Windows.Forms.Screen]::AllScreens | ForEach-Object {
 $center=New-Object ComputerUse.WindowApi+POINT

@@ -20,6 +20,7 @@ export const verifyPointerWindow = async (prepared: PreparedPointer, signal?: Ab
   if (!prepared.windowHandle || !prepared.windowBounds) return;
   const current = await getWindow(prepared.windowHandle, signal);
   if (!current || !sameBounds(current.bounds, prepared.windowBounds)) throw new Error('Target window moved, resized, or closed after pointer preparation.');
+  if (prepared.observation.window && current.processId !== prepared.observation.window.processId) throw new Error('Target window was replaced after pointer preparation.');
 };
 
 export const verifyPointerElement = async (prepared: PreparedPointer, signal?: AbortSignal) => {
@@ -33,7 +34,7 @@ export const verifyPointerElement = async (prepared: PreparedPointer, signal?: A
     || semantic(current.value) !== semantic(prepared.uiaValue)) {
     throw new Error('Prepared UI Automation element identity changed.');
   }
-  if (!current.pointerAncestors?.includes(prepared.uiaRuntimeId) && !(prepared.detectorBacked && prepared.verification === 'visual')) {
+  if (!current.pointerAncestors?.includes(prepared.uiaRuntimeId)) {
     throw new Error('Prepared point no longer resolves to the intended UI Automation element.');
   }
 };
