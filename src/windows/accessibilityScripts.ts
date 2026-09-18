@@ -31,6 +31,27 @@ while($null -ne $child -and ($visited+$queue.Count) -lt 30000){$queue.Enqueue($c
 }
 if($null -ne $element -and $null -ne $elements){$elements[$wanted]=$element}`;
 
+export const accessibilityHitScript = (point: Point) => `
+$pointElement=[System.Windows.Automation.AutomationElement]::FromPoint([System.Windows.Point]::new(${Math.round(point.x)},${Math.round(point.y)}))
+$pointWalker=[System.Windows.Automation.TreeWalker]::RawViewWalker
+$hitDepth=0;$hitVisited=0
+while($null -ne $pointElement){
+$hitDepth++;if($hitDepth -gt 128){throw 'Point hit hierarchy exceeded its verification limit.'}
+$hitChildren=[System.Collections.Generic.List[object]]::new()
+$hitChild=$pointWalker.GetFirstChild($pointElement)
+while($null -ne $hitChild){
+$hitVisited++;if($hitVisited -gt 2000){throw 'Point hit traversal exceeded its verification limit.'}
+$hitCurrent=$hitChild.Current;$hitRect=$hitCurrent.BoundingRectangle
+if(-not $hitCurrent.IsOffscreen -and -not $hitRect.IsEmpty -and
+$hitRect.Left -le ${Math.round(point.x)} -and $hitRect.Right -gt ${Math.round(point.x)} -and
+$hitRect.Top -le ${Math.round(point.y)} -and $hitRect.Bottom -gt ${Math.round(point.y)}){$hitChildren.Add($hitChild)}
+$hitChild=$pointWalker.GetNextSibling($hitChild)
+}
+if($hitChildren.Count -eq 0){break}
+if($hitChildren.Count -gt 1){throw 'Overlapping UI Automation descendants make the click recipient ambiguous.'}
+$pointElement=$hitChildren[0]
+}`;
+
 export const accessibilityTreeScript = (handle: string, maxNodes: number, bounds?: Bounds) => {
   const target = bounds || {
     left: -2147483648,
@@ -130,8 +151,7 @@ $clickable=New-Object System.Windows.Point;$hasClickable=$element.TryGetClickabl
 $pattern=$null;$value=''
 if($element.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern,[ref]$pattern)){$value=[string]$pattern.Current.Value}
 $pointerAncestors=[System.Collections.Generic.List[string]]::new()
-${point ? `$pointElement=[System.Windows.Automation.AutomationElement]::FromPoint([System.Windows.Point]::new(${Math.round(point.x)},${Math.round(point.y)}))
-$pointWalker=[System.Windows.Automation.TreeWalker]::RawViewWalker
+${point ? `${accessibilityHitScript(point)}
 $rootId=($root.GetRuntimeId() -join '.');$ancestor=$pointElement;$ancestorCount=0
 while($null -ne $ancestor -and $ancestorCount -lt 128){
 $ancestorCount++;$ancestorId=($ancestor.GetRuntimeId() -join '.')

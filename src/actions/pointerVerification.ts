@@ -3,6 +3,7 @@ import { pointInBounds } from '../types/geometry';
 import { getAccessibilityElement } from '../windows/accessibility';
 import { getWindow, windowFromPoint } from '../windows/windows';
 import { psLiteral } from '../windows/powershell';
+import { accessibilityHitScript } from '../windows/accessibilityScripts';
 
 const sameBounds = (first: NonNullable<PreparedPointer['windowBounds']>, second: NonNullable<PreparedPointer['windowBounds']>) =>
   first.left === second.left && first.top === second.top && first.right === second.right && first.bottom === second.bottom;
@@ -61,8 +62,8 @@ Add-Type -AssemblyName UIAutomationTypes
 Add-Type -AssemblyName WindowsBase
 }
 $wanted='${psLiteral(prepared.uiaRuntimeId)}'
-$element=[System.Windows.Automation.AutomationElement]::FromPoint([System.Windows.Point]::new(${prepared.target.x},${prepared.target.y}))
-$walker=[System.Windows.Automation.TreeWalker]::RawViewWalker;$found=$false;$visited=0
+${accessibilityHitScript(prepared.target)}
+$element=$pointElement;$walker=$pointWalker;$found=$false;$visited=0
 while($null -ne $element -and $visited -lt 128){
 $visited++
 if(($element.GetRuntimeId() -join '.') -eq $wanted){$found=$true;break}
