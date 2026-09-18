@@ -219,7 +219,7 @@ const registerDrag = (server: McpServer, state: RuntimeState, clientId: string) 
     }, { deadlineMs: state.config.maxTimelineMs + 1_000, owner: { clientId, leaseId: lease.id }, signal: extra.signal });
     const hover = hoverScreenshot ? await fastObservation(state, expectedWindow?.handle, extra.signal).catch(() => undefined) : undefined;
     return { ...result, hover, coordinateSpace: observation ? 'observation' : screenCoordinates ? 'screen' : 'relative' };
-  }));
+  }, state));
   server.registerTool('computer_drag_release', {
     title: 'Release drag',
     description: 'Verify the current grounded destination, release the held drag button, and optionally capture the result.',
@@ -249,7 +249,7 @@ const registerDrag = (server: McpServer, state: RuntimeState, clientId: string) 
     }, { owner: { clientId, leaseId: lease.id }, signal: extra.signal });
     const post = observeAfter ? await fastObservation(state, undefined, extra.signal).catch(() => undefined) : undefined;
     return { ...result, post };
-  }));
+  }, state));
 };
 
 const registerAccessibility = (server: McpServer, state: RuntimeState, clientId: string) => server.registerTool('computer_accessibility', {
@@ -273,7 +273,7 @@ const registerAccessibility = (server: McpServer, state: RuntimeState, clientId:
   }, guard, execution), { deadlineMs: 25_000, owner: { clientId, leaseId: lease.id }, signal: extra.signal });
   const post = observeAfter ? await fastObservation(state, handle, extra.signal).catch(() => undefined) : undefined;
   return { action, windowHandle: handle, runtimeId: id, result, post };
-}));
+}, state));
 
 const registerRelease = (server: McpServer, state: RuntimeState, clientId: string) => server.registerTool('computer_release_input', {
   title: 'Release held input',

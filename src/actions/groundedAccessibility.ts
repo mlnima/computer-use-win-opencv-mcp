@@ -2,7 +2,7 @@ import type { InputExecution } from '../input/execution';
 import type { Observation, ScreenElement } from '../types/perception';
 import { imageToScreenBounds } from './observations';
 import { getAccessibilityElement, performAccessibilityAction } from '../windows/accessibility';
-import { getWindow } from '../windows/windows';
+import { focusWindow, getWindow } from '../windows/windows';
 
 type AccessibilityTarget = {
   observation?: Observation;
@@ -44,6 +44,7 @@ export const performGroundedAccessibilityAction = async (
       throw new Error('Accessibility target element is stale, replaced, or unavailable.');
     }
   }
+  await focusWindow(target.handle, execution.signal);
   guard();
   return await performAccessibilityAction(target.handle, target.runtimeId, target.action, target.value, execution.signal);
 };
