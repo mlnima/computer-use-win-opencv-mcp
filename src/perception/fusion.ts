@@ -3,6 +3,7 @@ import { boundsArea, containment, containsPoint, intersectionOverUnion, safePoin
 
 const sourcePriority: Record<ElementSource, number> = { uia: 4, vision: 3, ocr: 2, opencv: 1 };
 const pointerActions = new Set<ScreenElement['actions'][number]>(['click', 'doubleClick', 'rightClick', 'drag']);
+let elementSequence = 0;
 
 const normalizedText = (value: string) => value.normalize('NFKC').toLocaleLowerCase().replace(/\s+/g, ' ').trim();
 
@@ -142,7 +143,7 @@ export const fuseElements = (
   const combined = removeDuplicates(mergeCandidates(mergeCandidates(removeDuplicates(accessibility), text), visual));
   const selected = combined.sort((first, second) => priorityScore(second) - priorityScore(first)).slice(0, maxElements);
   const ordered = selected.sort((first, second) => first.bounds.top - second.bounds.top || first.bounds.left - second.bounds.left || boundsArea(first.bounds) - boundsArea(second.bounds));
-  const identified = ordered.map((element, index) => ({ ...element, id: `e${index + 1}`, parentId: undefined, children: undefined }));
+  const identified = ordered.map((element) => ({ ...element, id: `e${++elementSequence}`, parentId: undefined, children: undefined }));
   return updateSafePoints(assignRelationships(identified));
 };
 
