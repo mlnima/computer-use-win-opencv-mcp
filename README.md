@@ -148,6 +148,44 @@ node .\dist\index.js --transport all
 
 Command-line `--host` and `--port` override their environment values. Keep credentials in the environment rather than command-line arguments so they are not exposed in the process list.
 
+### Keep HTTP available after logon
+
+An HTTP client cannot launch this server for you. A stopped process produces connection-refused or `fetch failed` errors before MCP initialization. For a dedicated Windows desktop, configure a Task Scheduler task that runs as the desktop user with **Run only when user is logged on**. Starting Node directly through SSH normally runs it outside that interactive desktop.
+
+After building the repository and configuring its `.env`, run this once from the repository directory in that user's PowerShell session. Use the existing task's name if replacing a previous launch task, and stop its running instance first so the port is free.
+
+```powershell
+$taskName = 'computer-use-win-opencv-mcp'
+$repoPath = (Get-Location).Path
+$nodePath = (Get-Command node.exe).Source
+$desktopUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+$runtimePath = Join-Path $repoPath 'runtime'
+New-Item -ItemType Directory -Path $runtimePath -Force | Out-Null
+$launcher = @'
+$ErrorActionPreference = 'Stop'
+$process = Start-Process -FilePath '__NODE__' -ArgumentList @('"__ENTRY__"', '--transport', 'http') -WorkingDirectory '__REPO__' -WindowStyle Hidden -RedirectStandardOutput '__STDOUT__' -RedirectStandardError '__STDERR__' -PassThru
+$null = $process.Handle
+$process.WaitForExit()
+exit $process.ExitCode
+'@
+$launcher = $launcher.Replace('__NODE__', $nodePath.Replace("'", "''"))
+$launcher = $launcher.Replace('__ENTRY__', (Join-Path $repoPath 'dist\index.js').Replace("'", "''"))
+$launcher = $launcher.Replace('__REPO__', $repoPath.Replace("'", "''"))
+$launcher = $launcher.Replace('__STDOUT__', (Join-Path $runtimePath 'http.stdout.log').Replace("'", "''"))
+$launcher = $launcher.Replace('__STDERR__', (Join-Path $runtimePath 'http.stderr.log').Replace("'", "''"))
+$encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($launcher))
+$action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -NonInteractive -WindowStyle Hidden -EncodedCommand $encoded" -WorkingDirectory $repoPath
+$principal = New-ScheduledTaskPrincipal -UserId $desktopUser -LogonType Interactive -RunLevel Limited
+$trigger = New-ScheduledTaskTrigger -AtLogOn -User $desktopUser
+$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -MultipleInstances IgnoreNew
+Register-ScheduledTask -TaskName $taskName -Action $action -Principal $principal -Trigger $trigger -Settings $settings -Force | Out-Null
+Start-ScheduledTask -TaskName $taskName
+```
+
+The launcher stays hidden, waits for Node, and passes its exit code to Task Scheduler so failures can trigger a restart. The task starts at user logon, remains running on battery, and has no execution time limit. It still requires a logged-on, unlocked desktop. Server settings and credentials continue to come from the repository's private `.env`. Logs are written to the ignored `runtime` directory.
+
+After an update, stop this task, pull the repository, run `npm ci` and `npm run build`, then start the task again. Confirm that the configured port has a listener and that an authenticated `/health` request returns `ok: true` before starting an agent run. See Microsoft's [task settings](https://learn.microsoft.com/en-us/powershell/module/scheduledtasks/new-scheduledtasksettingsset) and [interactive principal](https://learn.microsoft.com/en-us/powershell/module/scheduledtasks/new-scheduledtaskprincipal) documentation.
+
 ## Configuration
 
 | Variable | Example | Purpose |
@@ -334,6 +372,10 @@ No Windows automation stack can truthfully guarantee every pixel or every game:
 The server does not attempt to bypass Windows security boundaries, protected desktops, anti-cheat systems, or application protections. Lower-level input drivers are not bundled or activated.
 
 ## Troubleshooting
+
+**The HTTP client reports `fetch failed` or connection refused**
+
+Check that the server process is running and listening on the exact host and port in the client configuration. For a scheduled launch, inspect `Get-ScheduledTaskInfo -TaskName <task-name>` and `runtime\http.stderr.log`; also check the task's logon trigger, restart policy, battery conditions, and desktop user. A client retry cannot restart a stopped HTTP server. If a listener exists locally but the client still cannot connect, check the endpoint address and Windows Firewall rule for that port.
 
 **The HTTP client receives 401**
 
