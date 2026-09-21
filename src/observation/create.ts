@@ -91,6 +91,36 @@ const accessibilityForTarget = async (
   }
 };
 
+const captureWithAccessibility = async (state: RuntimeState, options: ObserveOptions, window: Observation['window'], signal?: AbortSignal) => {
+  const captureFrame = async () => {
+    const capture = await captureTarget({ windowHandle: window?.handle, window, bounds: options.bounds, includeCursor: options.includeCursor === true, signal });
+    const capturedAt = new Date();
+    assertObservationActive(state, signal);
+    const prepared = await prepareObservationImage(capture.bytes, capture.width, capture.height, state.config);
+    assertObservationActive(state, signal);
+    return { capture, capturedAt, prepared };
+  };
+  let frame = await captureFrame();
+  let elapsed = 0;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const accessibility = await accessibilityForTarget(window?.handle, frame.capture.bounds, state,
+      options.includeAccessibility !== false, options.maxAccessibilityNodes || state.config.maxElements * 4,
+      options.accessibilityTimeoutMs || 20_000, signal);
+    elapsed += accessibility.elapsed;
+    assertObservationActive(state, signal);
+    if (!accessibility.nodes.length) return { ...frame, accessibility: { ...accessibility, elapsed } };
+    const next = await captureFrame();
+    const changed = hashImage(frame.prepared.bytes) !== hashImage(next.prepared.bytes)
+      && await imageDifferenceRatio(frame.prepared.bytes, next.prepared.bytes) > 0.002;
+    frame = next;
+    assertObservationActive(state, signal);
+    if (!changed) return { ...frame, accessibility: { ...accessibility, elapsed } };
+  }
+  return { ...frame, accessibility: {
+    nodes: [], elapsed, warning: 'Screen changed during all three accessibility captures. UI Automation elements were omitted; visual elements describe the latest image.'
+  } };
+};
+
 export const createObservation = async (
   state: RuntimeState,
   options: ObserveOptions = {}
@@ -105,34 +135,13 @@ export const createObservation = async (
   const directWindow = options.windowHandle ? await getWindow(options.windowHandle, signal) : undefined;
   assertObservationActive(state, signal);
   const window = directWindow || requireTarget(options, windows);
-  const capture = await captureTarget({
-    windowHandle: window?.handle,
-    window,
-    bounds: options.bounds,
-    includeCursor: options.includeCursor === true,
-    signal
-  });
-  const capturedAt = new Date();
-  assertObservationActive(state, signal);
-  const prepared = await prepareObservationImage(capture.bytes, capture.width, capture.height, state.config);
-  assertObservationActive(state, signal);
+  const { capture, capturedAt, prepared, accessibility } = await captureWithAccessibility(state, options, window, signal);
   const hash = hashImage(prepared.bytes);
   const previous = previousScreenshot(state, window?.handle, capture.bounds);
   const changeRatio = previous && previous.hash !== hash
     ? await imageDifferenceRatio(previous.bytes, prepared.bytes).catch(() => 1)
     : previous ? 0 : undefined;
-  const [cursor, accessibility] = await Promise.all([
-    getCursor(signal).catch(() => ({ x: 0, y: 0 })),
-    accessibilityForTarget(
-      window?.handle,
-      capture.bounds,
-      state,
-      options.includeAccessibility !== false,
-      options.maxAccessibilityNodes || state.config.maxElements * 4,
-      options.accessibilityTimeoutMs || 20_000,
-      signal
-    )
-  ]);
+  const cursor = await getCursor(signal).catch(() => ({ x: 0, y: 0 }));
   assertObservationActive(state, signal);
   const config = {
     ...state.config,
