@@ -16,6 +16,7 @@ const elementActions = new Set<ElementAction>([
   'expand',
   'collapse',
   'scroll',
+  'scrollIntoView',
   'drag'
 ]);
 
@@ -91,7 +92,7 @@ export const performAccessibilityAction = async (
 ): Promise<unknown> => {
   if (!/^\d+$/.test(handle)) throw new Error(`Invalid window handle: ${handle}`);
   if (!/^-?\d+(\.-?\d+)*$/.test(runtimeId)) throw new Error(`Invalid UI Automation runtime ID: ${runtimeId}`);
-  const supported = new Set(['focus', 'invoke', 'click', 'setValue', 'toggle', 'select', 'expand', 'collapse', 'scroll']);
+  const supported = new Set(['focus', 'invoke', 'click', 'setValue', 'toggle', 'select', 'expand', 'collapse', 'scroll', 'scrollIntoView']);
   if (!supported.has(action)) throw new Error(`Unsupported UI Automation action: ${action}`);
   return await runPowerShellJson<unknown>(
     accessibilityActionScript(handle, runtimeId, action, value),

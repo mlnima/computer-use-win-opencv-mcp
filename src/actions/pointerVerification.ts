@@ -35,7 +35,7 @@ export const verifyPointerElement = async (prepared: PreparedPointer, signal?: A
   }
   if (semantic(current.role) !== semantic(prepared.uiaRole) || semantic(current.name) !== semantic(prepared.uiaName)
     || semantic(current.value) !== semantic(prepared.uiaValue)) {
-    throw new Error('Prepared UI Automation element identity changed.');
+    throw new Error('Prepared UI Automation element identity changed. Observe the current screen and prepare its current target; this preparation is consumed and must not be retried.');
   }
   if (!current.pointerAncestors?.includes(prepared.uiaRuntimeId)) {
     throw new Error('Prepared point no longer resolves to the intended UI Automation element.');
@@ -105,7 +105,7 @@ if([ComputerUse.WindowApi]::GetAncestor($hitHandle,2) -ne $targetHandle){throw '
 if([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() -ge ${Date.parse(prepared.expiresAt)}){throw 'Prepared pointer expired during native verification.'}`;
 };
 
-export const inputSurfaceGuardScript = (window: WindowInfo, bounds: Bounds, foreground: string, expiresAt: string, runtimeId?: string) => `
+export const inputSurfaceGuardScript = (window: WindowInfo, bounds: Bounds, foreground: string, expiresAt: string, runtimeId?: string, scrollOnly = false) => `
 if([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() -ge ${Date.parse(expiresAt)}){throw 'Input surface observation expired.'}
 $targetHandle=[IntPtr]([Int64]'${window.handle}');$rect=New-Object ComputerUse.WindowApi+RECT
 if(-not [ComputerUse.WindowApi]::GetVisualWindowRect($targetHandle,[ref]$rect) -or
@@ -127,12 +127,12 @@ $surfaceFound=${runtimeId ? '$false' : '$true'};$visited=0
 while($null -ne $pointElement -and $visited -lt 128){
 $visited++;$current=$pointElement.Current
 if(-not $current.IsEnabled -or $current.IsOffscreen){throw 'Input surface hit is unavailable.'}
-if($pointElement.GetCurrentPropertyValue([System.Windows.Automation.AutomationElement]::IsInvokePatternAvailableProperty) -or
+${scrollOnly ? '' : `if($pointElement.GetCurrentPropertyValue([System.Windows.Automation.AutomationElement]::IsInvokePatternAvailableProperty) -or
 $pointElement.GetCurrentPropertyValue([System.Windows.Automation.AutomationElement]::IsTogglePatternAvailableProperty) -or
 $pointElement.GetCurrentPropertyValue([System.Windows.Automation.AutomationElement]::IsSelectionItemPatternAvailableProperty) -or
 $pointElement.GetCurrentPropertyValue([System.Windows.Automation.AutomationElement]::IsValuePatternAvailableProperty)){
 throw 'Raw input hit an actionable UI control. Use computer_pointer_prepare and computer_pointer_commit.'
-}
+}`}
 if('${psLiteral(runtimeId || '')}' -ne '' -and ($pointElement.GetRuntimeId() -join '.') -eq '${psLiteral(runtimeId || '')}'){$surfaceFound=$true;break}
 $pointElement=$pointWalker.GetParent($pointElement)
 }

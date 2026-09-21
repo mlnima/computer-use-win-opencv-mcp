@@ -191,18 +191,31 @@ const validateControlBounds = (bounds?: Bounds) => {
   };
 };
 
-export const controlWindow = async (handle: string, action: WindowControlAction, bounds?: Bounds, signal?: AbortSignal): Promise<void> => {
+export const controlWindow = async (
+  handle: string, action: WindowControlAction, bounds?: Bounds, signal?: AbortSignal, expected?: WindowInfo
+): Promise<'completed' | 'close_requested' | 'already_closed' | 'target_changed'> => {
   if (!validHandle(handle)) throw new Error(`Invalid window handle: ${handle}`);
-  if (action === 'focus') return await focusWindow(handle, signal);
+  if (action === 'focus') { await focusWindow(handle, signal); return 'completed'; }
   const requested = action === 'move' || action === 'resize' ? validateControlBounds(bounds) : undefined;
-  await runPowerShell(`
+  const result = await runPowerShell(`
 $handle=[IntPtr]([Int64]'${handle}')
-if(-not [ComputerUse.WindowApi]::IsWindow($handle)){throw 'Window not found.'}
 $action='${action}'
+if(-not [ComputerUse.WindowApi]::IsWindow($handle)){
+if($action -eq 'close'){'already_closed';return};throw 'Window not found.'
+}
+if($action -eq 'close'){
+$processId=[uint32]0;[ComputerUse.WindowApi]::GetWindowThreadProcessId($handle,[ref]$processId) | Out-Null
+$length=[ComputerUse.WindowApi]::GetWindowTextLength($handle);$title=[Text.StringBuilder]::new($length+1)
+[ComputerUse.WindowApi]::GetWindowText($handle,$title,$title.Capacity) | Out-Null
+if($processId -ne ${expected?.processId || 0} -or $title.ToString() -cne '${psLiteral(expected?.title || '')}'){'target_changed';return}
+if(-not [ComputerUse.WindowApi]::PostMessage($handle,0x0010,[IntPtr]::Zero,[IntPtr]::Zero)){
+if(-not [ComputerUse.WindowApi]::IsWindow($handle)){'already_closed';return};throw 'Window close request failed.'
+}
+'close_requested';return
+}
 if($action -eq 'restore'){[ComputerUse.WindowApi]::ShowWindowAsync($handle,9) | Out-Null}
 if($action -eq 'minimize'){[ComputerUse.WindowApi]::ShowWindowAsync($handle,6) | Out-Null}
 if($action -eq 'maximize'){[ComputerUse.WindowApi]::ShowWindowAsync($handle,3) | Out-Null}
-if($action -eq 'close'){[ComputerUse.WindowApi]::PostMessage($handle,0x0010,[IntPtr]::Zero,[IntPtr]::Zero) | Out-Null}
 if($action -eq 'move' -or $action -eq 'resize'){
 $rect=New-Object ComputerUse.WindowApi+RECT
 if(-not [ComputerUse.WindowApi]::GetWindowRect($handle,[ref]$rect)){throw 'Window bounds are unavailable.'}
@@ -211,8 +224,10 @@ $y=$(if($action -eq 'move'){${requested?.top || 0}}else{$rect.Top})
 $width=$(if($action -eq 'resize'){${requested?.width || 1}}else{$rect.Right-$rect.Left})
 $height=$(if($action -eq 'resize'){${requested?.height || 1}}else{$rect.Bottom-$rect.Top})
 if(-not [ComputerUse.WindowApi]::MoveWindow($handle,$x,$y,$width,$height,$true)){throw 'Window move or resize failed.'}
-}`, 12_000, signal);
+}
+'completed'`, 12_000, signal);
   invalidateWindowCache();
+  return result as 'completed' | 'close_requested' | 'already_closed' | 'target_changed';
 };
 
 export const windowFromPoint = async (point: Point, signal?: AbortSignal): Promise<WindowInfo | null> => {

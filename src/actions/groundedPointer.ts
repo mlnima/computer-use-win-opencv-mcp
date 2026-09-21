@@ -8,6 +8,7 @@ import type { MouseButton, PreparedPointer } from '../types/input';
 import type { Observation } from '../types/perception';
 import type { RuntimeState } from '../types/runtime';
 import { createObservation } from '../observation/create';
+import { createPostObservation } from '../observation/post';
 import { newId, recordTrace } from '../runtime/state';
 import { focusWindow, foregroundHandle, getWindow } from '../windows/windows';
 import { compactObservation, requireObservation, targetPoint } from './observations';
@@ -31,6 +32,7 @@ export type CommitPointerOptions = {
   deltaX?: number;
   deltaY?: number;
   observeAfter?: boolean;
+  inlineImage?: boolean;
 };
 const sameBounds = (first: Bounds, second: Bounds) =>
   first.left === second.left && first.top === second.top && first.right === second.right && first.bottom === second.bottom;
@@ -92,9 +94,8 @@ export const prepareGroundedPointer = async (
   const originalVisualSample = await storedObservationSample(state, observation, region, owner.signal);
   const moved = await runInputTransaction(state, async ({ guard, execution }) => {
     const startedAt = performance.now();
-    if (Date.parse(observation.expiresAt) <= Date.now()) throw new Error('Observation expired before pointer preparation.');
     const current = observation.window?.handle ? await getWindow(observation.window.handle, execution.signal) : undefined;
-    if (observation.window && (!current || !sameBounds(current.bounds, observation.window.bounds))) throw new Error('Target window geometry is stale.');
+    if (observation.window && (!current || current.processId !== observation.window.processId || !sameBounds(current.bounds, observation.window.bounds))) throw new Error('Target window geometry or identity changed.');
     if (current) await focusWindow(current.handle, execution.signal);
     guard();
     const snapshotDifference = verifyVisualSamples(state, originalVisualSample, await captureObservationSample(state, observation, region, execution.signal), 'Observed target changed before pointer preparation');
@@ -138,7 +139,7 @@ export const prepareGroundedPointer = async (
     windowProcessId: moved.current?.processId || moved.hit?.processId,
     foregroundWindowHandle: moved.foregroundWindowHandle,
     preparedAt: new Date(now).toISOString(),
-    expiresAt: new Date(now + state.config.observationTtlMs).toISOString(),
+    expiresAt: new Date(now + state.config.resourceTtlMs).toISOString(),
     imageHash: moved.imageHash,
     verification,
     windowBounds: moved.current?.bounds || moved.hit?.bounds,
@@ -205,7 +206,7 @@ export const consumeGroundedPointer = async <T>(
     }
     guard();
     if (Date.parse(prepared.expiresAt) <= Date.now()) throw new Error('Pointer preparation expired during commit verification.');
-    execution.pointerGuard = pointerGuardScript(prepared);
+    execution.pointerGuard = pointerGuardScript({ ...prepared, expiresAt: new Date(Date.now() + state.config.observationTtlMs).toISOString() });
     const result = await operation(prepared, execution);
     guard();
     return { prepared, original, hitWindow, visualDifference, result };
@@ -234,15 +235,12 @@ export const commitGroundedPointer = async (
     durationMs: committed.result.durationMs
   });
   let postObservationError: string | undefined;
-  const post = options.observeAfter === false ? undefined : await createObservation(state, {
+  const post = options.observeAfter === false ? undefined : await createPostObservation(state, {
     target: committed.original.window ? 'window' : committed.original.target === 'region' ? 'region' : 'desktop',
     windowHandle: committed.original.window?.handle,
     bounds: committed.original.target === 'region' ? committed.original.bounds : undefined,
-    includeAccessibility: false,
-    includeOcr: false,
-    includeOpenCv: false,
     signal: owner.signal
-  }).catch((error) => { postObservationError = error instanceof Error ? error.message : String(error); return undefined; });
+  }, options.inlineImage).catch((error) => { postObservationError = error instanceof Error ? error.message : String(error); return undefined; });
   return {
     consumedPrepareId: committed.prepared.id,
     inputExecuted: true,
@@ -250,6 +248,6 @@ export const commitGroundedPointer = async (
     input: committed.result,
     hitWindow: committed.hitWindow,
     visualDifference: committed.visualDifference,
-    post: post ? { ...compactObservation(post), screenshotUri: post.screenshotUri } : undefined
+    post
   };
 };

@@ -4,6 +4,7 @@ import { assertPerceptionDeadline } from '../perception/deadline';
 import type { Observation } from '../types/perception';
 import type { RuntimeState } from '../types/runtime';
 import { readStoredResource, storeImageResource } from './resources';
+import { createObservation } from './create';
 
 const assertRuntimeActive = (state: RuntimeState) => {
   assertPerceptionDeadline();
@@ -19,7 +20,7 @@ const refreshScene = (state: RuntimeState, observation: Observation) => {
 
 const getObservationData = (state: RuntimeState, observationId: string) => {
   const observation = state.observations.get(observationId);
-  if (!observation || Date.parse(observation.expiresAt) <= Date.now()) throw new Error('Observation is missing or expired. Capture a new observation.');
+  if (!observation || Date.parse(observation.retainedUntil) <= Date.now()) throw new Error('Observation is missing or expired. Capture a new observation.');
   const screenshot = state.screenshots.get(observation.screenshotId);
   if (!screenshot) throw new Error('Observation screenshot is unavailable. Capture a new observation.');
   return { observation, screenshot };
@@ -31,11 +32,26 @@ export const locateObservation = async (
   query: string,
   options: { limit?: number; useVision?: boolean } = {}
 ): Promise<GroundingResult> => {
-  const { observation, screenshot } = getObservationData(state, observationId);
+  let { observation, screenshot } = getObservationData(state, observationId);
+  if (Date.parse(observation.expiresAt) <= Date.now() || !observation.elementsAnalyzed) {
+    observation = await createObservation(state, {
+      target: observation.target,
+      windowHandle: observation.window?.handle,
+      bounds: observation.target === 'region' ? observation.bounds : undefined,
+      includeAccessibility: !observation.elementsAnalyzed || observation.analysis.accessibility,
+      includeOcr: !observation.elementsAnalyzed || observation.analysis.ocr,
+      includeOpenCv: !observation.elementsAnalyzed || observation.analysis.opencv,
+      analysisLevel: observation.analysis.level
+    });
+    screenshot = state.screenshots.get(observation.screenshotId)!;
+  }
+  if (!observation.elementsAnalyzed && !(options.useVision && state.config.visionApiUrl && state.config.visionModel)) {
+    throw new Error('This observation has no element analysis. Capture a new computer_observe observation with mode accessibility, fast, standard or deep and elementLimit greater than 0 before locating elements.');
+  }
   const requestedLimit = Math.max(1, Math.min(50, options.limit || 10));
   const result = await locateElements({
     config: state.config,
-    observationId,
+    observationId: observation.id,
     query,
     elements: observation.elements,
     image: screenshot.bytes,

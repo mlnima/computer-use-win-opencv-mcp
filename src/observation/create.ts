@@ -99,6 +99,7 @@ export const createObservation = async (
   const contextSignal = currentPerceptionSignal();
   const signal = options.signal && contextSignal ? AbortSignal.any([options.signal, contextSignal]) : options.signal || contextSignal;
   assertObservationActive(state, signal);
+  if (options.target === 'region' && !options.bounds) throw new Error('Region capture requires bounds or regionObservationId, regionToken and regionElementId.');
   const needsForeground = !options.windowHandle && options.target !== 'desktop' && options.target !== 'region';
   const windows = needsForeground ? await listWindows(signal, true) : [];
   const directWindow = options.windowHandle ? await getWindow(options.windowHandle, signal) : undefined;
@@ -149,11 +150,13 @@ export const createObservation = async (
     analysisLevel: options.analysisLevel || 'standard',
     signal
   });
+  const elementsAnalyzed = Boolean(window && options.includeAccessibility !== false || config.ocrEnabled || config.openCvEnabled);
   perception.stageMs.accessibility = Math.round((perception.stageMs.accessibility + accessibility.elapsed) * 10) / 10;
   assertObservationActive(state, signal);
   const id = randomUUID();
   const token = randomUUID();
   const expiresAt = new Date(Date.now() + state.config.observationTtlMs);
+  const retainedUntil = new Date(Date.now() + state.config.resourceTtlMs).toISOString();
   assertObservationActive(state, signal);
   const warnings = [...prepared.warnings, accessibility.warning, ...perception.warnings].filter((warning): warning is string => Boolean(warning));
   const overlayBytes = options.includeOverlay
@@ -184,6 +187,8 @@ export const createObservation = async (
     bounds: capture.bounds,
     width: prepared.width,
     height: prepared.height,
+    elementsAnalyzed,
+    analysis: { accessibility: options.includeAccessibility !== false, ocr: config.ocrEnabled, opencv: config.openCvEnabled, level: options.analysisLevel || 'standard' },
     elements: perception.elements,
     sourceCounts: perception.sourceCounts,
     stageMs: perception.stageMs,
@@ -194,6 +199,7 @@ export const createObservation = async (
     token,
     capturedAt: capturedAt.toISOString(),
     expiresAt: expiresAt.toISOString(),
+    retainedUntil,
     target: observationTarget(window?.handle, options.bounds),
     window,
     screenshotId: screenshot.id,
@@ -204,6 +210,8 @@ export const createObservation = async (
     height: prepared.height,
     bounds: capture.bounds,
     cursor,
+    elementsAnalyzed,
+    analysis: { accessibility: options.includeAccessibility !== false, ocr: config.ocrEnabled, opencv: config.openCvEnabled, level: options.analysisLevel || 'standard' },
     elements: perception.elements,
     sourceCounts: perception.sourceCounts,
     imageChanged: changeRatio === undefined ? undefined : changeRatio > 0.002,

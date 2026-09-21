@@ -108,6 +108,8 @@ const aliases: Record<string, string> = {
   menu: 'applications',
   pgup: 'pageup',
   pgdn: 'pagedown',
+  prior: 'pageup',
+  next: 'pagedown',
   del: 'delete',
   ins: 'insert',
   prtsc: 'printscreen',

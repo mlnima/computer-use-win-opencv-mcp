@@ -28,15 +28,15 @@ const sameBounds = (first: z.infer<typeof boundsSchema>, second: z.infer<typeof 
 const observeSchema = z.object({
   target: z.enum(['foreground', 'window', 'region', 'desktop']).default('foreground'),
   windowHandle: z.string().optional(),
-  bounds: boundsSchema.optional(),
+  bounds: boundsSchema.optional().describe('Required for target region unless regionObservationId, regionToken and regionElementId are all supplied.'),
   mode: z.enum(['screenshot', 'accessibility', 'fast', 'standard', 'deep']).default('standard'),
   includeCursor: z.boolean().default(false),
   includeOverlay: z.boolean().optional(),
   inlineImage: z.boolean().optional(),
   elementLimit: z.number().int().min(0).max(500).default(80).describe('0 skips element analysis. Use a positive limit for locate or element-based actions.'),
-  regionObservationId: z.string().optional(),
-  regionToken: z.string().optional(),
-  regionElementId: z.string().optional(),
+  regionObservationId: z.string().optional().describe('Source observation for an element region; requires regionToken and regionElementId.'),
+  regionToken: z.string().optional().describe('Token for regionObservationId; requires regionElementId.'),
+  regionElementId: z.string().optional().describe('Element to capture as a region; requires regionObservationId and regionToken.'),
   regionPadding: z.number().int().min(0).max(200).default(24)
 });
 
@@ -115,8 +115,7 @@ const observeResult = async (
   return result;
 };
 
-const visionStatus = (requested: boolean, configured: boolean, used: boolean) =>
-  used ? 'used' : !requested ? 'not_requested' : !configured ? 'not_configured' : 'requested_but_not_used';
+const visionStatus = (requested: boolean, configured: boolean, used: boolean) => used ? 'used' : !requested ? 'not_requested' : !configured ? 'not_configured' : 'requested_but_not_used';
 
 const locateResult = async (state: RuntimeState, observationId: string, query: string, limit: number, useVision: boolean, signal?: AbortSignal) => {
   try {
@@ -124,13 +123,13 @@ const locateResult = async (state: RuntimeState, observationId: string, query: s
       const located = await locateObservation(state, observationId, query, { limit, useVision });
       const configured = Boolean(state.config.visionApiUrl && state.config.visionModel);
       const reasons = locateEvidenceReasons(located.matches, located.warning);
-      const observation = requireObservation(state, observationId);
+      const observation = requireObservation(state, located.observationId);
       let resource: Awaited<ReturnType<typeof createObservationOverlay>> | undefined;
       let warning: string | undefined;
       if (reasons.length) {
         const elements = selectEvidenceElements(observation.elements, located.matches, 64, observation.width, observation.height);
         try {
-          resource = await createObservationOverlay(state, observationId, elements.map((element) => element.id));
+          resource = await createObservationOverlay(state, observation.id, elements.map((element) => element.id));
         } catch (error) {
           if (error instanceof Error && error.name === 'AbortError') throw error;
           warning = `Automatic Set-of-Mark rendering failed: ${error instanceof Error ? error.message : String(error)}`;
@@ -138,6 +137,9 @@ const locateResult = async (state: RuntimeState, observationId: string, query: s
       }
       const value = {
         ...located,
+        token: observation.token,
+        expiresAt: observation.expiresAt,
+        retainedUntil: observation.retainedUntil,
         matches: located.matches.map((match) => ({ ...presentElement(match), score: match.score, reasons: match.reasons })),
         serverVision: {
           requested: useVision,
@@ -199,7 +201,7 @@ const registerObserve = (server: McpServer, state: RuntimeState) => server.regis
       : undefined;
     const sourceElement = source && regionElementId ? requireElement(source, regionElementId) : undefined;
     const currentWindow = source?.window ? await getWindow(source.window.handle, extra.signal) : undefined;
-    if (source?.window && (!currentWindow || !sameBounds(currentWindow.bounds, source.window.bounds))) {
+    if (source?.window && (!currentWindow || currentWindow.processId !== source.window.processId || !sameBounds(currentWindow.bounds, source.window.bounds))) {
       throw new Error('Region source window moved, resized, or closed. Capture a new observation.');
     }
     const regionBounds = source && sourceElement ? imageToScreenBounds(source, {
@@ -231,7 +233,7 @@ const registerObserve = (server: McpServer, state: RuntimeState) => server.regis
 
 const registerLocate = (server: McpServer, state: RuntimeState) => server.registerTool('computer_locate', {
   title: 'Locate screen elements',
-  description: 'Rank grounded elements by text, role, position, and optional configured server vision. Reports requested/configured/used vision state and automatically includes inline Set-of-Mark evidence for absent, ambiguous, weak, or OpenCV-only matches.',
+  description: 'Rank grounded elements locally by text, role and position. Automatically refresh old snapshots; use the returned observationId, token and element IDs for actions. Optional server vision and inline Set-of-Mark evidence resolve absent, ambiguous, weak or OpenCV-only matches.',
   inputSchema: locateSchema,
   annotations: { readOnlyHint: true }
 }, ({ observationId, query, limit, useVision }, extra) => locateResult(state, observationId, query, limit, useVision, extra.signal));
@@ -274,6 +276,8 @@ const registerWait = (server: McpServer, state: RuntimeState) => server.register
   const result = await waitForObservation(state, condition, { target, windowHandle, bounds }, { timeoutMs, intervalMs, signal: extra.signal });
   return {
     satisfied: result.satisfied,
+    status: result.status,
+    lastUnavailableReason: result.lastUnavailableReason,
     condition: result.condition,
     elapsedMs: result.elapsedMs,
     attempts: result.attempts,

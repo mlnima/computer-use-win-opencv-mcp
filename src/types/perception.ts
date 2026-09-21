@@ -2,7 +2,7 @@ import type { Bounds, Point, WindowInfo } from './geometry';
 
 export type ElementSource = 'uia' | 'ocr' | 'opencv' | 'vision';
 
-export type ElementAction = 'click' | 'doubleClick' | 'rightClick' | 'focus' | 'invoke' | 'setValue' | 'toggle' | 'select' | 'expand' | 'collapse' | 'scroll' | 'drag';
+export type ElementAction = 'click' | 'doubleClick' | 'rightClick' | 'focus' | 'invoke' | 'setValue' | 'toggle' | 'select' | 'expand' | 'collapse' | 'scroll' | 'scrollIntoView' | 'drag';
 
 export type ScreenElement = {
   id: string;
@@ -45,6 +45,7 @@ export type Observation = {
   token: string;
   capturedAt: string;
   expiresAt: string;
+  retainedUntil: string;
   target: 'desktop' | 'window' | 'region';
   window?: WindowInfo;
   screenshotId: string;
@@ -53,6 +54,8 @@ export type Observation = {
   height: number;
   bounds: Bounds;
   cursor: Point;
+  elementsAnalyzed: boolean;
+  analysis: { accessibility: boolean; ocr: boolean; opencv: boolean; level: 'fast' | 'standard' | 'deep' };
   elements: ScreenElement[];
   sourceCounts: Partial<Record<ElementSource, number>>;
   imageChanged?: boolean;

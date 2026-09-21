@@ -39,7 +39,7 @@ export const cleanExpiredState = (state: RuntimeState) => {
     for (const observationId of observationIds) state.observations.delete(observationId);
   }
   for (const [id, value] of state.observations) {
-    if (Date.parse(value.expiresAt) > now) continue;
+    if (Date.parse(value.retainedUntil) > now) continue;
     state.observations.delete(id);
   }
   for (const [id, value] of state.preparedPointers) if (Date.parse(value.expiresAt) <= now) state.preparedPointers.delete(id);

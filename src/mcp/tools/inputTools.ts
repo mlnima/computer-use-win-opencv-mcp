@@ -3,7 +3,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { bindDragDestination, preflightDragDestination, verifyDragDestination } from '../../actions/dragDestination';
 import { performGroundedAccessibilityAction } from '../../actions/groundedAccessibility';
-import { compactObservation, requireElement, requireObservation, targetPoint, verifyInputSurface } from '../../actions/observations';
+import { requireElement, requireObservation, scrollPoint, targetPoint, verifyInputSurface } from '../../actions/observations';
 import { commitGroundedPointer, consumeGroundedPointer, prepareGroundedPointer } from '../../actions/groundedPointer';
 import { releaseHeldInputs } from '../../input/cleanup';
 import { beginDragNative, cancelDragNative, moveDragNative, releaseDragNative } from '../../input/drag';
@@ -18,7 +18,7 @@ import {
 } from '../../input/pointer';
 import { runInputTransaction } from '../../input/queue';
 import { runInputTimeline } from '../../input/timeline';
-import { createObservation } from '../../observation/create';
+import { createPostObservation } from '../../observation/post';
 import { assertControl } from '../../runtime/control';
 import { recordTrace } from '../../runtime/state';
 import type { RuntimeState } from '../../types/runtime';
@@ -39,19 +39,6 @@ import { runTool } from '../toolResult';
 const required = <T>(value: T | undefined, name: string): T => {
   if (value === undefined || value === '') throw new Error(`${name} is required for this action.`);
   return value;
-};
-
-const fastObservation = async (state: RuntimeState, windowHandle?: string, signal?: AbortSignal) => {
-  const observation = await createObservation(state, {
-    target: windowHandle ? 'window' : 'foreground',
-    windowHandle,
-    includeCursor: true,
-    includeAccessibility: false,
-    includeOcr: false,
-    includeOpenCv: false,
-    signal
-  });
-  return { ...compactObservation(observation), screenshotUri: observation.screenshotUri };
 };
 
 const focusTarget = async (windowHandle: string | undefined, guard: () => void, signal?: AbortSignal) => {
@@ -82,7 +69,7 @@ const cancelUnsafeDrag = async (state: RuntimeState, execution: Parameters<typeo
 const registerPreparedPointer = (server: McpServer, state: RuntimeState, clientId: string) => {
   server.registerTool('computer_pointer_prepare', {
     title: 'Prepare verified pointer action',
-    description: 'Resolve a fresh grounded element, focus its window, move physically, verify the hit target, and return a one-use commit ID. Commit this target before preparing another; each preparation moves the pointer. Element IDs belong only to their observation.',
+    description: 'Resolve a fresh grounded element, focus its window, move physically and return a one-use commit ID. Check the hover image before committing: if the requested UI change already happened, observe again instead of clicking the old target. Element IDs belong only to their observation.',
     inputSchema: preparePointerSchema,
     annotations: { readOnlyHint: false, destructiveHint: false }
   }, ({ leaseId, ...options }, extra) => runTool(async () => {
@@ -102,20 +89,18 @@ const registerPreparedPointer = (server: McpServer, state: RuntimeState, clientI
 
 const registerRawPointer = (server: McpServer, state: RuntimeState, clientId: string) => server.registerTool('computer_pointer', {
   title: 'Direct and relative pointer input',
-  description: 'Physical or relative input for an observed canvas surface or 3D/game control. Presses, scrolling, and held movement require surface grounding and reject actionable UI controls. Use prepare/commit for toolbar controls; never bypass a rejected target.',
+  description: 'Physical or relative pointer input. Scroll within an observed region or element, including normal UI controls; with no x/y, move to its center or safe point first. Clicks and held input require a canvas surface and reject actionable controls. Use prepare/commit for UI clicks.',
   inputSchema: rawPointerSchema,
   annotations: { readOnlyHint: false, destructiveHint: true }
 }, ({ leaseId, surface, action, x, y, relative, durationMs, steps, button, mode, count, intervalMs, deltaX, deltaY }, extra) => runTool(async () => {
   const lease = await assertControl(state, clientId, leaseId);
-  if ((x === undefined) !== (y === undefined)) throw new Error('Pointer input requires both x and y or neither coordinate.');
-  if (action === 'move' && x === undefined) throw new Error('x and y are required for pointer movement.');
-  if (relative && x === undefined) throw new Error('Relative pointer input requires x and y deltas.');
+  const point = scrollPoint(state, surface, { action, x, y, relative });
   recordTrace(state, 'pointer.direct', { action, relative, button, mode, count });
   return await runInputTransaction(state, async ({ execution }) => {
     if (state.drag) throw new Error('An active grounded drag monopolizes pointer input until released or cancelled.');
     const startedAt = performance.now();
-    execution.pointerGuard = await verifyInputSurface(state, surface, { action, x, y, relative, button, mode, deltaX, deltaY }, execution);
-    if (x !== undefined && y !== undefined) await movePointerNative(state, { x, y, relative, durationMs, steps }, execution);
+    execution.pointerGuard = await verifyInputSurface(state, surface, { ...point, button, mode, deltaX, deltaY }, execution);
+    if (point.x !== undefined && point.y !== undefined) await movePointerNative(state, { x: point.x, y: point.y, relative: point.relative, durationMs, steps }, execution);
     if (action === 'click') await clickPointerNative(state, { button, count, intervalMs }, execution);
     if (action === 'button') await mouseButtonNative(state, button, mode, execution);
     if (action === 'scroll') await scrollPointerNative(state, { deltaX, deltaY }, execution);
@@ -151,7 +136,7 @@ const registerKeyboard = (server: McpServer, state: RuntimeState, clientId: stri
 
 const registerTimeline = (server: McpServer, state: RuntimeState, clientId: string) => server.registerTool('computer_input_timeline', {
   title: 'Timed input sequence',
-  description: 'Batch timestamped input for drawing, 3D, games, or ordered keyboard input. Mouse presses require an observed surface; keep every absolute point 8 screen pixels inside it. Select toolbar controls separately through prepare/commit. Batches cannot mix toolbar clicks with drawing.',
+  description: 'Batch timestamped input for drawing, scrolling or keyboard input. Wheel-only pointer sequences may scroll normal UI controls inside the observed surface. Move inside that surface before wheeling; keep points 8 screen pixels inside it. Use prepare/commit for UI clicks.',
   inputSchema: timelineSchema,
   annotations: { readOnlyHint: false, destructiveHint: true }
 }, ({ leaseId, surface, events, keyMethod, preserveHeld, windowHandle }, extra) => runTool(async () => {
@@ -192,18 +177,16 @@ const registerDrag = (server: McpServer, state: RuntimeState, clientId: string) 
   }));
   server.registerTool('computer_drag_move', {
     title: 'Move active drag',
-    description: 'Move an active held-button drag to a fresh grounded destination, screen point, or relative delta and optionally capture while held.',
+    description: 'Move an active held-button drag to a fresh grounded destination, screen point, or relative delta and optionally capture while held. With relative true, an omitted x or y is zero.',
     inputSchema: dragMoveSchema,
     annotations: { readOnlyHint: false, destructiveHint: true }
   }, ({ leaseId, dragId, observationId, token, elementId, x, y, screenCoordinates, relative, allowRaw, durationMs, hoverScreenshot }, extra) => runTool(async () => {
     const lease = await assertControl(state, clientId, leaseId);
     requireDragOwner(state, clientId, lease.id, dragId);
     const observation = observationId ? requireObservation(state, observationId, required(token, 'token')) : undefined;
-    if (!observation && !screenCoordinates && !relative) throw new Error('Set screenCoordinates or relative for an ungrounded drag destination.');
-    if (screenCoordinates && relative) throw new Error('A drag destination cannot be both screen and relative coordinates.');
     const destination = observation
       ? targetPoint(observation, { elementId, x, y, allowRaw }).screen
-      : { x: required(x, 'x'), y: required(y, 'y') };
+      : relative ? { x: x ?? 0, y: y ?? 0 } : { x: required(x, 'x'), y: required(y, 'y') };
     const expectedWindow = observation?.window;
     const element = observation && elementId ? requireElement(observation, elementId) : undefined;
     const result = await runInputTransaction(state, async ({ execution }) => {
@@ -217,7 +200,7 @@ const registerDrag = (server: McpServer, state: RuntimeState, clientId: string) 
       }
       return { drag: publicDrag(moved.drag), input: moved.input, snapshotDifference: prepared.snapshotDifference };
     }, { deadlineMs: state.config.maxTimelineMs + 1_000, owner: { clientId, leaseId: lease.id }, signal: extra.signal });
-    const hover = hoverScreenshot ? await fastObservation(state, expectedWindow?.handle, extra.signal).catch(() => undefined) : undefined;
+    const hover = hoverScreenshot ? await createPostObservation(state, { target: expectedWindow ? 'window' : 'foreground', windowHandle: expectedWindow?.handle, includeCursor: true, signal: extra.signal }).catch(() => undefined) : undefined;
     return { ...result, hover, coordinateSpace: observation ? 'observation' : screenCoordinates ? 'screen' : 'relative' };
   }, state));
   server.registerTool('computer_drag_release', {
@@ -225,7 +208,7 @@ const registerDrag = (server: McpServer, state: RuntimeState, clientId: string) 
     description: 'Verify the current grounded destination, release the held drag button, and optionally capture the result.',
     inputSchema: dragReleaseSchema,
     annotations: { readOnlyHint: false, destructiveHint: true }
-  }, ({ leaseId, dragId, observeAfter }, extra) => runTool(async () => {
+  }, ({ leaseId, dragId, observeAfter, inlineImage }, extra) => runTool(async () => {
     const lease = await assertControl(state, clientId, leaseId);
     const drag = requireDragOwner(state, clientId, lease.id, dragId);
     const result = await runInputTransaction(state, async ({ execution }) => {
@@ -247,17 +230,17 @@ const registerDrag = (server: McpServer, state: RuntimeState, clientId: string) 
       }
       return { ...await releaseDragNative(state, { dragId }, execution), verification };
     }, { owner: { clientId, leaseId: lease.id }, signal: extra.signal });
-    const post = observeAfter ? await fastObservation(state, undefined, extra.signal).catch(() => undefined) : undefined;
+    const post = observeAfter ? await createPostObservation(state, { target: 'foreground', includeCursor: true, signal: extra.signal }, inlineImage).catch(() => undefined) : undefined;
     return { ...result, post };
   }, state));
 };
 
 const registerAccessibility = (server: McpServer, state: RuntimeState, clientId: string) => server.registerTool('computer_accessibility', {
   title: 'UI Automation action',
-  description: 'Invoke, focus, set, toggle, select, expand, collapse, or scroll an accessible element without coordinate guessing.',
+  description: 'Invoke, focus, set, toggle, select, expand, or collapse an accessible element. scroll requires value up/down/left/right on a container supporting scroll. scrollIntoView reveals an item; it does not scroll a container by a direction.',
   inputSchema: accessibilitySchema,
   annotations: { readOnlyHint: false, destructiveHint: true }
-}, ({ leaseId, observationId, token, elementId, windowHandle, runtimeId, action, value, observeAfter }, extra) => runTool(async () => {
+}, ({ leaseId, observationId, token, elementId, windowHandle, runtimeId, action, value, observeAfter, inlineImage }, extra) => runTool(async () => {
   const lease = await assertControl(state, clientId, leaseId);
   const observation = observationId ? requireObservation(state, observationId, required(token, 'token')) : undefined;
   const element = observation && elementId ? requireElement(observation, elementId) : undefined;
@@ -271,7 +254,7 @@ const registerAccessibility = (server: McpServer, state: RuntimeState, clientId:
     action,
     value: value || ''
   }, guard, execution), { deadlineMs: 25_000, owner: { clientId, leaseId: lease.id }, signal: extra.signal });
-  const post = observeAfter ? await fastObservation(state, handle, extra.signal).catch(() => undefined) : undefined;
+  const post = observeAfter ? await createPostObservation(state, { target: 'window', windowHandle: handle, includeCursor: true, signal: extra.signal }, inlineImage).catch(() => undefined) : undefined;
   return { action, windowHandle: handle, runtimeId: id, result, post };
 }, state));
 

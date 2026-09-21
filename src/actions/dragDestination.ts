@@ -47,7 +47,7 @@ export const preflightDragDestination = async (
   const expectedWindow = destination.observation?.window;
   const currentWindow = expectedWindow ? await getWindow(expectedWindow.handle, execution.signal) : undefined;
   execution.assertActive();
-  if (expectedWindow && (!currentWindow || !sameBounds(currentWindow.bounds, expectedWindow.bounds))) {
+  if (expectedWindow && (!currentWindow || currentWindow.processId !== expectedWindow.processId || !sameBounds(currentWindow.bounds, expectedWindow.bounds))) {
     throw new Error('Drag destination window geometry is stale.');
   }
   const elementBounds = destination.observation && destination.element

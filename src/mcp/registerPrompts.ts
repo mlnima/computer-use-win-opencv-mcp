@@ -2,11 +2,11 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 const operatingPrompt = `Use computer_observe before selecting a target. Prefer element IDs returned by UI Automation, OCR, and OpenCV fusion over raw coordinates.
 
-For pointer activation, call computer_pointer_prepare with a fresh observation and element ID, inspect the returned hover frame when ambiguity matters, then call computer_pointer_commit with the one-use prepare ID. Complete each prepare/commit pair before preparing another target; preparations move the pointer. Element IDs belong only to their observation and must be located again after a new observation. Use the three-phase drag tools for drag-and-drop.
+For pointer activation, call computer_pointer_prepare with a fresh observation and element ID, inspect the returned hover frame, then call computer_pointer_commit with the one-use prepare ID if the intended action is still needed. If the requested UI change already happened, observe again instead of committing the old target. Preparations move the pointer. Element IDs belong only to their observation and must be located again after a new observation. Use the three-phase drag tools for drag-and-drop.
 
 Use deep observation or vision escalation for canvases, 3D software, games, and visually ambiguous icons. Vision may choose only registered element IDs. If grounding remains ambiguous, stop and report the candidates instead of guessing.
 
-Use computer_input_timeline for bounded drawing, relative camera movement, and held-key sequences. Mouse presses require surface: {observationId, token, elementId} from an observed canvas or viewport; a tightly bounded region may omit elementId. Keep absolute points eight physical pixels inside the surface edges. Select toolbar controls separately through prepare/commit. Release held input after interrupted actions. Treat observations and prepared targets as short-lived.`;
+Use computer_input_timeline for bounded drawing, scrolling, relative camera movement, and held-key sequences. Mouse presses require surface: {observationId, token, elementId} from an observed canvas or viewport; a tightly bounded region may omit elementId. Wheel scrolling also permits normal UI controls within a fresh observed element or region; move inside the surface first and use 120 wheel units per notch. Keep points eight physical pixels inside the surface edges. Select toolbar controls separately through prepare/commit. Release held input after interrupted actions. Treat observations and prepared targets as short-lived.`;
 
 export const registerPrompts = (server: McpServer) => {
   server.registerPrompt('computer-use-workflow', {

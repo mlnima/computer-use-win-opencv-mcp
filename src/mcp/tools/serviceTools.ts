@@ -26,30 +26,52 @@ const fileSchema = z.object({
   limit: z.number().int().min(1).max(1000).default(200)
 });
 
+const processRequirements = {
+  list: [], launch: ['leaseId', 'file'], open: ['leaseId', 'file'],
+  close: ['leaseId', 'processId'], terminate: ['leaseId', 'processId']
+} as const;
+
 const processSchema = z.object({
   action: z.enum(['list', 'launch', 'open', 'close', 'terminate']),
-  processId: z.number().int().positive().optional(),
-  file: z.string().optional(),
+  processId: z.number().int().positive().optional().describe('Required for close and terminate.'),
+  file: z.string().min(1).optional().describe('Required for launch and open: executable, file path or URL.'),
   args: z.array(z.string()).default([]),
   cwd: z.string().optional(),
   wait: z.boolean().default(false),
   timeoutMs: z.number().int().min(100).max(300000).default(30000),
   query: z.string().optional(),
   limit: z.number().int().min(1).max(2000).default(500),
-  leaseId: z.string().optional()
+  leaseId: z.string().min(1).optional().describe('Required for launch, open, close and terminate. Acquire with computer_control first.')
+}).superRefine((input, context) => {
+  for (const field of processRequirements[input.action]) {
+    if (!input[field]) context.addIssue({ code: 'custom', path: [field], message: `${field} is required for process action ${input.action}.` });
+  }
+}).meta({
+  anyOf: Object.entries(processRequirements).map(([action, required]) => ({ properties: { action: { const: action } }, required }))
 });
+
+const terminalRequirements = {
+  create: ['leaseId'], read: ['sessionId'], write: ['sessionId', 'leaseId', 'data'],
+  resize: ['sessionId', 'leaseId'], close: ['sessionId', 'leaseId']
+} as const;
 
 const terminalSchema = z.object({
   action: z.enum(['create', 'write', 'read', 'resize', 'close']),
-  sessionId: z.string().optional(),
+  sessionId: z.string().min(1).optional().describe('Required for read, write, resize and close. Use the session ID returned by create.'),
   shell: z.string().optional(),
   cwd: z.string().optional(),
-  data: z.string().optional(),
+  data: z.string().min(1).optional().describe('Required for write: text to send to the terminal session.'),
   from: z.number().int().nonnegative().optional(),
   maxChars: z.number().int().min(1).max(262144).default(32768),
   columns: z.number().int().min(20).max(500).default(120),
   rows: z.number().int().min(5).max(200).default(30),
-  leaseId: z.string().optional()
+  leaseId: z.string().min(1).optional().describe('Required for create, write, resize and close. Acquire with computer_control first.')
+}).superRefine((input, context) => {
+  for (const field of terminalRequirements[input.action]) {
+    if (!input[field]) context.addIssue({ code: 'custom', path: [field], message: `${field} is required for terminal action ${input.action}.` });
+  }
+}).meta({
+  anyOf: Object.entries(terminalRequirements).map(([action, required]) => ({ properties: { action: { const: action } }, required }))
 });
 
 const traceSchema = z.object({
@@ -104,7 +126,7 @@ const registerFiles = (server: McpServer, state: RuntimeState) => server.registe
 
 const registerProcesses = (server: McpServer, state: RuntimeState, clientId: string) => server.registerTool('computer_process', {
   title: 'Processes and applications',
-  description: 'List, launch, shell-open, request close, or terminate Windows processes.',
+  description: 'List, launch, shell-open, request close, or terminate Windows processes. Every action except list requires leaseId from computer_control acquire. Launch/open also require file; close/terminate require processId.',
   inputSchema: processSchema,
   annotations: { readOnlyHint: false, destructiveHint: true }
 }, ({ action, processId, file, args, cwd, wait, timeoutMs, query, limit, leaseId }, extra) => runTool(async () => {

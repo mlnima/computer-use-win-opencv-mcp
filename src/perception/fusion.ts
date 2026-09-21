@@ -13,6 +13,7 @@ const mergeConfidence = (first: number, second: number) =>
   Math.min(0.999, 1 - (1 - Math.max(0, first)) * (1 - Math.max(0, second)));
 
 const sameSemanticElement = (first: ScreenElement, second: ScreenElement) => {
+  if (first.uiaRuntimeId && second.uiaRuntimeId && first.uiaRuntimeId !== second.uiaRuntimeId) return false;
   const overlap = intersectionOverUnion(first.bounds, second.bounds);
   const firstText = normalizedText(`${first.name} ${first.value || ''}`);
   const secondText = normalizedText(`${second.name} ${second.value || ''}`);

@@ -7,6 +7,7 @@ import { getHeldInputState } from '../../input/heldState';
 import { runInputTransaction } from '../../input/queue';
 import { acquireLease, assertControl, cancelControlInput, controlStatus, releaseLease, renewLease } from '../../runtime/control';
 import type { RuntimeState } from '../../types/runtime';
+import type { WindowInfo } from '../../types/geometry';
 import { listMonitors } from '../../windows/monitors';
 import { controlWindow, getWindow, listWindows } from '../../windows/windows';
 import { runTool } from '../toolResult';
@@ -86,25 +87,37 @@ const registerStatus = (server: McpServer, state: RuntimeState, clientId: string
   };
 }));
 
-const registerTargets = (server: McpServer, state: RuntimeState, clientId: string) => server.registerTool('computer_targets', {
-  title: 'Windows and monitors',
-  description: 'List display targets or focus, restore, minimize, maximize, move, resize, or close a window.',
-  inputSchema: targetsSchema,
-  annotations: { readOnlyHint: false, destructiveHint: true }
-}, ({ action, windowHandle, bounds, leaseId }, extra) => runTool(async () => {
-  if (action === 'list') {
-    const [windows, monitors] = await Promise.all([listWindows(extra.signal, true), listMonitors(extra.signal)]);
-    return { windows, monitors };
-  }
-  const handle = required(windowHandle, 'windowHandle');
-  const lease = await assertControl(state, clientId, leaseId);
-  await runInputTransaction(state, async ({ guard, execution }) => {
-    guard();
-    await controlWindow(handle, action, bounds, execution.signal);
-    guard();
-  }, { owner: { clientId, leaseId: lease.id }, signal: extra.signal });
-  return { action, windowHandle: handle, window: await getWindow(handle, extra.signal) };
-}));
+const registerTargets = (server: McpServer, state: RuntimeState, clientId: string) => {
+  const knownWindows = new Map<string, WindowInfo>();
+  return server.registerTool('computer_targets', {
+    title: 'Windows and monitors',
+    description: 'List display targets or focus, restore, minimize, maximize, move, resize, or close a window. Close requires a previously listed or observed window; an already disappeared window returns already_closed.',
+    inputSchema: targetsSchema,
+    annotations: { readOnlyHint: false, destructiveHint: true }
+  }, ({ action, windowHandle, bounds, leaseId }, extra) => runTool(async () => {
+    if (action === 'list') {
+      const [windows, monitors] = await Promise.all([listWindows(extra.signal, true), listMonitors(extra.signal)]);
+      for (const window of windows) {
+        knownWindows.delete(window.handle);
+        knownWindows.set(window.handle, window);
+      }
+      while (knownWindows.size > 1000) knownWindows.delete(knownWindows.keys().next().value!);
+      return { windows, monitors };
+    }
+    const handle = required(windowHandle, 'windowHandle');
+    const expected = knownWindows.get(handle) || [...state.observations.values()].reverse().find((observation) => observation.window?.handle === handle)?.window;
+    const recovery = { tool: 'computer_targets', arguments: { action: 'list' } };
+    if (action === 'close' && !expected) return { action, windowHandle: handle, status: 'target_unobserved', recovery };
+    const lease = await assertControl(state, clientId, leaseId);
+    const status = await runInputTransaction(state, async ({ guard, execution }) => {
+      guard();
+      const result = await controlWindow(handle, action, bounds, execution.signal, expected);
+      guard();
+      return result;
+    }, { owner: { clientId, leaseId: lease.id }, signal: extra.signal });
+    return { action, windowHandle: handle, status, window: status === 'already_closed' ? null : await getWindow(handle, extra.signal), ...(status === 'target_changed' ? { recovery } : {}) };
+  }));
+};
 
 const registerControl = (server: McpServer, state: RuntimeState, clientId: string) => server.registerTool('computer_control', {
   title: 'Computer control state',

@@ -13,8 +13,12 @@ import { captureObservationSample, storedObservationSample, targetVisualRegion, 
 
 export const requireObservation = (state: RuntimeState, id: string, token?: string): Observation => {
   const observation = state.observations.get(id);
-  if (!observation) throw new Error('Observation was not found. Capture a new observation.');
-  if (Date.parse(observation.expiresAt) <= Date.now()) throw new Error('Observation is stale. Capture a new observation.');
+  if (!observation || Date.parse(observation.retainedUntil) <= Date.now()) {
+    throw Object.assign(new Error(`Observation ${id} is ${observation ? 'expired' : 'missing'}. Capture a new observation and use its id, token and element IDs; do not retry the old target.`), {
+      code: observation ? 'OBSERVATION_EXPIRED' : 'OBSERVATION_MISSING',
+      recovery: { tool: 'computer_observe', arguments: { target: observation?.window ? 'window' : 'foreground', ...(observation?.window ? { windowHandle: observation.window.handle } : {}), mode: 'standard' } }
+    });
+  }
   if (token !== undefined && observation.token !== token) throw new Error('Observation token does not match.');
   return observation;
 };
@@ -62,6 +66,13 @@ export const targetPoint = (
 type InputSurface = { observationId: string; token: string; elementId?: string };
 type DirectInput = { action: string; x?: number; y?: number; relative: boolean; button: MouseButton; mode: 'press' | 'down' | 'up'; deltaX?: number; deltaY?: number };
 
+export const scrollPoint = (state: RuntimeState, surface: InputSurface | undefined, input: Pick<DirectInput, 'action' | 'x' | 'y' | 'relative'>) => {
+  if (input.action !== 'scroll' || input.x !== undefined || input.y !== undefined || !surface) return input;
+  const observation = requireObservation(state, surface.observationId, surface.token);
+  const element = surface.elementId ? requireElement(observation, surface.elementId) : undefined;
+  return { ...input, ...imageToScreenPoint(observation, element?.safePoint || { x: observation.width / 2, y: observation.height / 2 }), relative: false };
+};
+
 export const verifyInputSurface = async (state: RuntimeState, surface: InputSurface | undefined, input: TimelineEvent[] | DirectInput, execution: InputExecution) => {
   const events: TimelineEvent[] = Array.isArray(input) ? [...input].sort((a, b) => a.at - b.at) : [
     ...(input.x === undefined ? [] : [{ at: 0, type: 'move' as const, x: input.x, y: input.y!, relative: input.relative }]),
@@ -70,19 +81,20 @@ export const verifyInputSurface = async (state: RuntimeState, surface: InputSurf
       : [{ at: 0, type: 'button' as const, button: input.button, mode: input.action === 'click' ? 'press' as const : input.mode }])
   ];
   const held = getHeldInputState(state).buttons.size > 0;
+  const scrollOnly = !held && events.some((event) => event.type === 'wheel') && events.every((event) => event.type === 'move' || event.type === 'wheel');
   if (!events.some((event) => event.type === 'wheel' || event.type === 'button' && event.mode !== 'up' || event.type === 'move' && held)) return undefined;
-  if (!surface) throw new Error('Raw pointer presses, scrolling, and drawing require surface: {observationId, token, elementId}. Use a fresh canvas element or a region observation; use prepare/commit for UI controls.');
+  if (!surface) throw new Error('Raw pointer presses, scrolling, and drawing require surface: {observationId, token, elementId}. Scrolling accepts a fresh UI element or region; presses and drawing require a canvas surface. Use prepare/commit for UI clicks.');
   const observation = requireObservation(state, surface.observationId, surface.token);
   const element = surface.elementId ? requireElement(observation, surface.elementId) : undefined;
   if (!element && observation.target !== 'region') throw new Error('Input surface requires an elementId or a tightly bounded region observation.');
-  if (element?.actions.some((action) => ['invoke', 'toggle', 'select', 'setValue', 'expand', 'collapse'].includes(action))) throw new Error('This is an actionable control, not an input surface. Use prepare/commit.');
+  if (!scrollOnly && element?.actions.some((action) => ['invoke', 'toggle', 'select', 'setValue', 'expand', 'collapse'].includes(action))) throw new Error('This is an actionable control, not an input surface. Use prepare/commit.');
   const outer = element ? imageToScreenBounds(observation, element.bounds) : observation.bounds;
   const bounds = { left: outer.left + 8, top: outer.top + 8, right: outer.right - 8, bottom: outer.bottom - 8 };
   let point: Point = await probeNative(state, execution);
   let first: Point | undefined = held ? point : undefined;
   for (const event of events) {
-    if (event.type === 'move' && !event.relative) {
-      point = { x: event.x, y: event.y };
+    if (event.type === 'move') {
+      point = event.relative ? { x: point.x + event.x, y: point.y + event.y } : { x: event.x, y: event.y };
       if (!containsPoint(bounds, point)) throw new Error('Raw input leaves the observed surface interior. Keep at least 8 screen pixels inside its edges; use verified clicks for toolbars.');
     }
     if (event.type === 'wheel' || event.type === 'button' && event.mode !== 'up') {
@@ -99,7 +111,7 @@ export const verifyInputSurface = async (state: RuntimeState, surface: InputSurf
   verifyVisualSamples(state, original, await captureObservationSample(state, observation, region, execution.signal), 'Input surface changed before execution');
   const foreground = await foregroundHandle(execution.signal);
   execution.assertActive();
-  return inputSurfaceGuardScript(window, bounds, foreground, observation.expiresAt, element?.uiaRuntimeId);
+  return inputSurfaceGuardScript(window, bounds, foreground, new Date(Date.now() + state.config.observationTtlMs).toISOString(), element?.uiaRuntimeId, scrollOnly);
 };
 
 export const compactObservation = (observation: Observation) => ({
@@ -107,6 +119,7 @@ export const compactObservation = (observation: Observation) => ({
   token: observation.token,
   capturedAt: observation.capturedAt,
   expiresAt: observation.expiresAt,
+  retainedUntil: observation.retainedUntil,
   target: observation.target,
   window: observation.window,
   screenshotId: observation.screenshotId,
@@ -114,6 +127,7 @@ export const compactObservation = (observation: Observation) => ({
   height: observation.height,
   bounds: observation.bounds,
   cursor: observation.cursor,
+  elementsAnalyzed: observation.elementsAnalyzed,
   elementCount: observation.elements.length,
   sourceCounts: observation.sourceCounts,
   imageChanged: observation.imageChanged,

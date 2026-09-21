@@ -86,6 +86,7 @@ $cache.TreeScope=[System.Windows.Automation.TreeScope]::Element
 [System.Windows.Automation.AutomationElement]::IsTogglePatternAvailableProperty
 [System.Windows.Automation.AutomationElement]::IsSelectionItemPatternAvailableProperty
 [System.Windows.Automation.AutomationElement]::IsExpandCollapsePatternAvailableProperty
+[System.Windows.Automation.AutomationElement]::IsScrollPatternAvailableProperty
 [System.Windows.Automation.AutomationElement]::IsScrollItemPatternAvailableProperty
 [System.Windows.Automation.ValuePattern]::ValueProperty
 [System.Windows.Automation.ValuePattern]::IsReadOnlyProperty
@@ -132,7 +133,8 @@ if([bool](Get-CachedValue $element ([System.Windows.Automation.AutomationElement
 if([bool](Get-CachedValue $element ([System.Windows.Automation.AutomationElement]::IsTogglePatternAvailableProperty))){$actions.Add('toggle')}
 if([bool](Get-CachedValue $element ([System.Windows.Automation.AutomationElement]::IsSelectionItemPatternAvailableProperty))){$actions.Add('select')}
 if([bool](Get-CachedValue $element ([System.Windows.Automation.AutomationElement]::IsExpandCollapsePatternAvailableProperty))){$actions.Add('expand');$actions.Add('collapse')}
-if([bool](Get-CachedValue $element ([System.Windows.Automation.AutomationElement]::IsScrollItemPatternAvailableProperty))){$actions.Add('scroll')}
+if([bool](Get-CachedValue $element ([System.Windows.Automation.AutomationElement]::IsScrollPatternAvailableProperty))){$actions.Add('scroll')}
+if([bool](Get-CachedValue $element ([System.Windows.Automation.AutomationElement]::IsScrollItemPatternAvailableProperty))){$actions.Add('scrollIntoView')}
 $controlType=Get-CachedValue $element ([System.Windows.Automation.AutomationElement]::ControlTypeProperty)
 $name=Get-CachedValue $element ([System.Windows.Automation.AutomationElement]::NameProperty)
 $value=Get-CachedValue $element ([System.Windows.Automation.ValuePattern]::ValueProperty)
@@ -186,7 +188,7 @@ ${resolveElement(handle, runtimeId)}
 $action='${psLiteral(action)}'
 $value=[System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encodedValue}'))
 if($null -eq $element){throw 'UI Automation element is stale or unavailable.'}
-$pattern=$null;$performed=$false;$used=''
+$pattern=$null;$performed=$false;$used='';$scroll=$null
 if($action -eq 'focus'){$element.SetFocus();$performed=$true;$used='SetFocus'}
 if($action -eq 'setValue'){
 if($element.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern,[ref]$pattern) -and -not $pattern.Current.IsReadOnly){$pattern.SetValue($value);$performed=$true;$used='ValuePattern'}
@@ -205,6 +207,20 @@ if($element.TryGetCurrentPattern([System.Windows.Automation.ExpandCollapsePatter
 if($action -eq 'expand'){$pattern.Expand()}else{$pattern.Collapse()};$performed=$true;$used='ExpandCollapsePattern'
 }}
 if($action -eq 'scroll'){
+if(@('up','down','left','right') -notcontains $value){throw 'scroll requires value: up, down, left or right.'}
+if($element.TryGetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern,[ref]$pattern)){
+$before=$pattern.Current
+$horizontal=[System.Windows.Automation.ScrollAmount]::NoAmount;$vertical=[System.Windows.Automation.ScrollAmount]::NoAmount
+switch($value){
+'up' {$vertical=[System.Windows.Automation.ScrollAmount]::SmallDecrement}
+'down' {$vertical=[System.Windows.Automation.ScrollAmount]::SmallIncrement}
+'left' {$horizontal=[System.Windows.Automation.ScrollAmount]::SmallDecrement}
+'right' {$horizontal=[System.Windows.Automation.ScrollAmount]::SmallIncrement}
+}
+$pattern.Scroll($horizontal,$vertical);$performed=$true;$used='ScrollPattern';$after=$pattern.Current
+$scroll=[PSCustomObject]@{changed=($before.HorizontalScrollPercent -ne $after.HorizontalScrollPercent -or $before.VerticalScrollPercent -ne $after.VerticalScrollPercent);horizontalPercent=$after.HorizontalScrollPercent;verticalPercent=$after.VerticalScrollPercent}
+}}
+if($action -eq 'scrollIntoView'){
 if($element.TryGetCurrentPattern([System.Windows.Automation.ScrollItemPattern]::Pattern,[ref]$pattern)){$pattern.ScrollIntoView();$performed=$true;$used='ScrollItemPattern'}
 }
 if($action -eq 'invoke' -or $action -eq 'click'){
@@ -213,5 +229,7 @@ if(-not $performed -and $element.TryGetCurrentPattern([System.Windows.Automation
 if(-not $performed -and $element.TryGetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern,[ref]$pattern)){$pattern.Toggle();$performed=$true;$used='TogglePattern'}
 }
 if(-not $performed){throw "UI Automation action '$action' is unavailable on this element."}
-[PSCustomObject]@{performed=$true;action=$action;runtimeId=$wanted;pattern=$used} | ConvertTo-Json -Compress`;
+$result=[ordered]@{performed=$true;action=$action;runtimeId=$wanted;pattern=$used}
+if($null -ne $scroll){$result.scroll=$scroll}
+$result | ConvertTo-Json -Compress`;
 };

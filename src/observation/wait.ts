@@ -12,6 +12,8 @@ export type WaitCondition =
 
 export type WaitResult = {
   satisfied: boolean;
+  status: 'satisfied' | 'timeout' | 'cancelled';
+  lastUnavailableReason?: string;
   condition: WaitCondition['kind'];
   elapsedMs: number;
   attempts: number;
@@ -75,6 +77,9 @@ const discardIntermediate = (state: RuntimeState, observation: ObservationResult
   }
 };
 
+const targetUnavailable = (error: unknown) => error instanceof Error &&
+  /^(No foreground window is available to observe\.|Window not found(?::|\.|$)|Window is minimized:|Window moved or resized during capture:|Windows Graphics Capture target closed before a frame arrived\.)/.test(error.message);
+
 export const waitForObservation = async (
   state: RuntimeState,
   condition: WaitCondition,
@@ -87,35 +92,31 @@ export const waitForObservation = async (
   const deadlineAt = started + timeoutMs;
   let attempts = 0;
   let observation: ObservationResult | undefined;
+  let lastUnavailableReason: string | undefined;
   let result = { satisfied: false, matches: [] as Array<ScreenElement & { score: number; reasons: string[] }> };
-  try {
-    observation = await withPerceptionDeadline(deadlineAt, () => createObservation(state, pollingOptions(observe, condition)), options.signal);
-    attempts = 1;
-    if (condition.kind !== 'visualChange' && Date.now() < deadlineAt) {
-      result = await withPerceptionDeadline(deadlineAt, () => evaluate(state, observation!, condition), options.signal);
-    }
-  } catch (error) {
-    if ((error as Error)?.name !== 'AbortError') throw error;
-  }
   while (!result.satisfied && Date.now() < deadlineAt) {
-    try { await delay(Math.min(intervalMs, Math.max(0, deadlineAt - Date.now())), undefined, options.signal ? { signal: options.signal } : undefined); }
-    catch (error) { if ((error as Error)?.name === 'AbortError') break; throw error; }
-    if (Date.now() >= deadlineAt) break;
-    const previous = observation;
     try {
+      if (attempts) await delay(Math.min(intervalMs, Math.max(0, deadlineAt - Date.now())), undefined, options.signal ? { signal: options.signal } : undefined);
+      if (Date.now() >= deadlineAt) break;
+      const previous = observation;
+      attempts += 1;
       observation = await withPerceptionDeadline(deadlineAt, () => createObservation(state, pollingOptions(observe, condition)), options.signal);
+      lastUnavailableReason = undefined;
+      if (previous) discardIntermediate(state, previous);
+      result = (previous || condition.kind !== 'visualChange') && Date.now() < deadlineAt
+        ? await withPerceptionDeadline(deadlineAt, () => evaluate(state, observation!, condition), options.signal)
+        : { satisfied: false, matches: [] };
     } catch (error) {
-      if ((error as Error)?.name === 'AbortError') break;
-      throw error;
+      if (options.signal?.aborted || (error as Error)?.name === 'AbortError') break;
+      if (!targetUnavailable(error)) throw error;
+      lastUnavailableReason = (error as Error).message;
+      result = { satisfied: false, matches: [] };
     }
-    if (previous) discardIntermediate(state, previous);
-    attempts += 1;
-    result = Date.now() < deadlineAt
-      ? await withPerceptionDeadline(deadlineAt, () => evaluate(state, observation!, condition), options.signal)
-      : { satisfied: false, matches: [] };
   }
   return {
     satisfied: result.satisfied,
+    status: result.satisfied ? 'satisfied' : options.signal?.aborted || state.closing ? 'cancelled' : 'timeout',
+    lastUnavailableReason,
     condition: condition.kind,
     elapsedMs: Date.now() - started,
     attempts,

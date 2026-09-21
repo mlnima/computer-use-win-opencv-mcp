@@ -31,9 +31,11 @@ export const performGroundedAccessibilityAction = async (
   guard: () => void,
   execution: InputExecution
 ) => {
+  await focusWindow(target.handle, execution.signal);
+  guard();
   if (target.observation?.window) {
     const window = await getWindow(target.handle, execution.signal);
-    if (!window || !sameBounds(window.bounds, target.observation.window.bounds)) throw new Error('Accessibility target window geometry is stale.');
+    if (!window || window.processId !== target.observation.window.processId || !sameBounds(window.bounds, target.observation.window.bounds)) throw new Error('Accessibility target window geometry or identity changed.');
   }
   if (target.element?.uiaRuntimeId) {
     const current = await getAccessibilityElement(target.handle, target.runtimeId, execution.signal);
@@ -41,10 +43,9 @@ export const performGroundedAccessibilityAction = async (
     if (!current || !current.enabled || current.offscreen || !boundsNear(current.bounds, bounds)
       || semantic(current.role) !== semantic(target.element.uiaRole) || semantic(current.name) !== semantic(target.element.uiaName)
       || semantic(current.value) !== semantic(target.element.uiaValue)) {
-      throw new Error('Accessibility target element is stale, replaced, or unavailable.');
+      throw new Error('Accessibility target element is stale, replaced, or unavailable. Capture a new observation and select its current element; do not retry the old IDs.');
     }
   }
-  await focusWindow(target.handle, execution.signal);
   guard();
   return await performAccessibilityAction(target.handle, target.runtimeId, target.action, target.value, execution.signal);
 };

@@ -13,6 +13,7 @@ export const toolResult = (value: unknown, summary?: string): CallToolResult => 
 
 export const toolError = (error: unknown): CallToolResult => ({
   content: [{ type: 'text', text: error instanceof Error ? error.message : String(error) }],
+  ...(error instanceof Error && 'recovery' in error ? { structuredContent: { error: error.message, code: (error as Error & { code?: string }).code, recovery: error.recovery } } : {}),
   isError: true
 });
 
@@ -20,9 +21,10 @@ export const runTool = async (operation: () => Promise<unknown> | unknown, state
   try {
     const value = await operation();
     const result = toolResult(value);
-    const evidence = value as { post?: { screenshotId?: string }; hover?: { screenshotId?: string } } | undefined;
+    const evidence = value as { post?: { screenshotId?: string; inlineImage?: boolean }; hover?: { screenshotId?: string; inlineImage?: boolean } } | undefined;
     const screenshotId = evidence?.post?.screenshotId || evidence?.hover?.screenshotId;
-    const screenshot = screenshotId ? state?.screenshots.get(screenshotId) : undefined;
+    const inlineImage = evidence?.post?.screenshotId ? evidence.post.inlineImage : evidence?.hover?.inlineImage;
+    const screenshot = screenshotId && inlineImage !== false ? state?.screenshots.get(screenshotId) : undefined;
     if (screenshot) result.content.push({ type: 'image', data: screenshot.bytes.toString('base64'), mimeType: screenshot.mimeType });
     return result;
   } catch (error) {
