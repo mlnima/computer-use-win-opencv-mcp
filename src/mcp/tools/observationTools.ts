@@ -14,6 +14,7 @@ import type { RuntimeState } from '../../types/runtime';
 import { resourceReference } from '../../runtime/resources';
 import { getWindow } from '../../windows/windows';
 import { runTool, toolError, toolResult } from '../toolResult';
+import { locateSchema, type registerObservationContext } from '../observationContext';
 
 const boundsSchema = z.object({
   left: z.number(),
@@ -38,13 +39,6 @@ const observeSchema = z.object({
   regionToken: z.string().optional().describe('Token for regionObservationId; requires regionElementId.'),
   regionElementId: z.string().optional().describe('Element to capture as a region; requires regionObservationId and regionToken.'),
   regionPadding: z.number().int().min(0).max(200).default(24)
-});
-
-const locateSchema = z.object({
-  observationId: z.string().min(1),
-  query: z.string().trim().min(1),
-  limit: z.number().int().min(1).max(50).default(10),
-  useVision: z.boolean().default(false)
 });
 
 const inspectSchema = z.object({
@@ -117,10 +111,10 @@ const observeResult = async (
 
 const visionStatus = (requested: boolean, configured: boolean, used: boolean) => used ? 'used' : !requested ? 'not_requested' : !configured ? 'not_configured' : 'requested_but_not_used';
 
-const locateResult = async (state: RuntimeState, observationId: string, query: string, limit: number, useVision: boolean, signal?: AbortSignal) => {
+const locateResult = async (state: RuntimeState, resolveObservationId: ReturnType<typeof registerObservationContext>, observationId: string | undefined, query: string, limit: number, useVision: boolean, signal?: AbortSignal) => {
   try {
     return await withPerceptionDeadline(Date.now() + state.config.visionTimeoutMs + 10_000, async () => {
-      const located = await locateObservation(state, observationId, query, { limit, useVision });
+      const located = await locateObservation(state, await resolveObservationId(observationId, signal), query, { limit, useVision });
       const configured = Boolean(state.config.visionApiUrl && state.config.visionModel);
       const reasons = locateEvidenceReasons(located.matches, located.warning);
       const observation = requireObservation(state, located.observationId);
@@ -231,12 +225,12 @@ const registerObserve = (server: McpServer, state: RuntimeState) => server.regis
   }
 });
 
-const registerLocate = (server: McpServer, state: RuntimeState) => server.registerTool('computer_locate', {
+const registerLocate = (server: McpServer, state: RuntimeState, resolveObservationId: ReturnType<typeof registerObservationContext>) => server.registerTool('computer_locate', {
   title: 'Locate screen elements',
-  description: 'Rank grounded elements locally by text, role and position. Automatically refresh old snapshots; use the returned observationId, token and element IDs for actions. Optional server vision and inline Set-of-Mark evidence resolve absent, ambiguous, weak or OpenCV-only matches.',
+  description: 'Rank grounded elements locally by text, role and position. Omit observationId to refresh this client\'s latest observed target. Automatically refresh old snapshots; use the returned observationId, token and element IDs for actions. Optional server vision and inline Set-of-Mark evidence resolve absent, ambiguous, weak or OpenCV-only matches.',
   inputSchema: locateSchema,
   annotations: { readOnlyHint: true }
-}, ({ observationId, query, limit, useVision }, extra) => locateResult(state, observationId, query, limit, useVision, extra.signal));
+}, ({ observationId, query, limit, useVision }, extra) => locateResult(state, resolveObservationId, observationId, query, limit, useVision, extra.signal));
 
 const registerInspect = (server: McpServer, state: RuntimeState) => server.registerTool('computer_inspect', {
   title: 'Inspect grounded element',
@@ -290,9 +284,9 @@ const registerWait = (server: McpServer, state: RuntimeState) => server.register
   };
 }));
 
-export const registerObservationTools = (server: McpServer, state: RuntimeState) => {
+export const registerObservationTools = (server: McpServer, state: RuntimeState, resolveObservationId: ReturnType<typeof registerObservationContext>) => {
   registerObserve(server, state);
-  registerLocate(server, state);
+  registerLocate(server, state, resolveObservationId);
   registerInspect(server, state);
   registerOverlay(server, state);
   registerWait(server, state);
